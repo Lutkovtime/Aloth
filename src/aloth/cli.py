@@ -11,6 +11,7 @@ from aloth.files import FileTools
 from aloth.home import ensure_home, home_dir
 from aloth.memory import MemoryStore
 from aloth.sessions import SessionStore
+from aloth.shell import Shell
 
 
 def _store() -> SessionStore:
@@ -32,7 +33,8 @@ def _cmd_chat(args: argparse.Namespace) -> int:
     mem = _mem()
     home = ensure_home()
     files = FileTools(home)
-    agent = build_agent(model=args.model, memory=mem, files=files)
+    shell = Shell(profile=args.profile)
+    agent = build_agent(model=args.model, memory=mem, files=files, shell=shell)
     sid = args.session or store.create_session()
 
     async def run() -> str:
@@ -67,6 +69,9 @@ def _cmd_search(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="aloth", description="Aloth (Amazing Sloth)")
     p.add_argument("--model", default="deepseek:deepseek-chat")
+    p.add_argument("--profile", default="readonly",
+                   choices=["readonly", "full"],
+                   help="профиль доверия для shell (default: readonly)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     chat = sub.add_parser("chat", help="поговорить с агентом")

@@ -14,6 +14,7 @@ from pydantic_ai import Agent, RunContext
 
 from aloth.files import FileTools
 from aloth.memory import MemoryStore
+from aloth.shell import Shell, ShellError
 from aloth.web import web_search
 
 DEFAULT_MODEL = "deepseek:deepseek-chat"
@@ -30,6 +31,7 @@ def build_agent(
     system_prompt: str = SYSTEM_PROMPT,
     memory: MemoryStore | None = None,
     files: FileTools | None = None,
+    shell: Shell | None = None,
 ) -> Agent:
     if not (os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("ALOTH_API_KEY")):
         raise ValueError("API key missing: set DEEPSEEK_API_KEY or ALOTH_API_KEY")
@@ -75,5 +77,15 @@ def build_agent(
     def search_web(ctx: RunContext[None], query: str) -> str:
         """Search the web (read-only). Returns titles and URLs."""
         return web_search(query)
+
+    if shell is not None:
+
+        @agent.tool
+        def run_command(ctx: RunContext[None], command: str) -> str:
+            """Run a shell command (allowed by the current trust profile)."""
+            try:
+                return shell.run(command)
+            except ShellError as e:
+                return f"запрещено: {e}"
 
     return agent
