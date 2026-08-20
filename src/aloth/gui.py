@@ -1,6 +1,8 @@
-"""Aloth GUI — чат с историей сессий (PySide6). Минимум на старт.
+"""Aloth GUI — чат с историей сессий + вкладки «Память», «Навыки», «Настройки» (PySide6).
 
-Окно: слева список сессий, справа переписка + поле ввода.
+Окно: вкладка «Чат» (сессии слева, переписка справа + поле ввода),
+«Память» — факты L1, «Навыки» — файлы ~/.aloth/skills/*.md,
+«Настройки» — матрица тулов (security.json) + HITL.
 Агент живёт в отдельном потоке (QThread), UI не замирает.
 Запуск: `aloth gui` или `python -m aloth.gui`.
 """
@@ -10,19 +12,27 @@ from __future__ import annotations
 import asyncio
 import html
 import sys
+import threading
+from pathlib import Path
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QSplitter,
+    QTabWidget,
+    QTableWidget,
+    QTableWidgetItem,
     QTextBrowser,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -31,21 +41,39 @@ from aloth.core import build_agent
 from aloth.files import FileTools
 from aloth.home import ensure_home
 from aloth.memory import MemoryStore
-from aloth.security import SecurityPolicy
+from aloth.security import KNOWN_TOOLS, SecurityPolicy
 from aloth.sessions import SessionStore
 from aloth.shell import Shell
 
 
 class AgentWorker(QThread):
-    """One-shot agent run in a worker thread. Emits (reply, error)."""
+    """One-shot agent run in a worker thread. Emits (reply, error).
+
+    HITL: tools with autoApprove=false emit approval_requested(tool, args)
+    and block until resolve_approval(ok) is called from the UI thread.
+    """
 
     done = Signal(str, str)
+    approval_requested = Signal(str, str)
 
     def __init__(self, prompt: str, history: list[dict], profile: str, parent=None):
         super().__init__(parent)
         self.prompt = prompt
         self.history = history
         self.profile = profile
+        self._event = threading.Event()
+        self._ok = False
+
+    def _approver(self, tool: str, args: str) -> bool:
+        self._ok = False
+        self._event.clear()
+        self.approval_requested.emit(tool, args)
+        self._event.wait(300)
+        return self._ok
+
+    def resolve_approval(self, ok: bool) -> None:
+        self._ok = ok
+        self._event.set()
 
     def run(self) -> None:
         try:
@@ -57,6 +85,8 @@ class AgentWorker(QThread):
                     files=FileTools(home),
                     shell=Shell(profile=self.profile),
                     security=policy,
+                    approver=self._approver,
+                    skills_dir=home / "skills",
                 )
                 context = "\n".join(f"{m['role']}: {m['content']}" for m in self.history)
                 full = f"{context}\nuser: {self.prompt}" if self.history else self.prompt
@@ -68,11 +98,193 @@ class AgentWorker(QThread):
             self.done.emit("", str(e))
 
 
+class MemoryTab(QWidget):
+    """Факты L1: список, добавить, забыть."""
+
+    def __init__(self, mem: MemoryStore):
+        super().__init__()
+        self.mem = mem
+        self.list = QListWidget()
+        self.input = QLineEdit()
+        self.input.setPlaceholderText("Новый факт…")
+        self.input.returnPressed.connect(self._add)
+
+        add_btn = QPushButton("Запомнить")
+        add_btn.clicked.connect(self._add)
+        forget_btn = QPushButton("Забыть выбранное")
+        forget_btn.clicked.connect(self._forget)
+
+        row = QHBoxLayout()
+        row.addWidget(self.input)
+        row.addWidget(add_btn)
+        row.addWidget(forget_btn)
+
+        lay = QVBoxLayout(self)
+        lay.addWidget(QLabel("Что Aloth знает о пользователе (попадает в контекст каждого запроса):"))
+        lay.addWidget(self.list)
+        lay.addLayout(row)
+        self._reload()
+
+    def _reload(self) -> None:
+        self.list.clear()
+        self.list.addItems(self.mem.all())
+
+    def _add(self) -> None:
+        text = self.input.text().strip()
+        if text:
+            self.mem.add(text)
+            self.input.clear()
+            self._reload()
+
+    def _forget(self) -> None:
+        item = self.list.currentItem()
+        if item:
+            self.mem.forget(item.text())
+            self._reload()
+
+
+class SkillsTab(QWidget):
+    """Файлы ~/.aloth/skills/*.md: список, редактор, создать, удалить."""
+
+    def __init__(self, skills_dir: Path):
+        super().__init__()
+        self.dir = skills_dir
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self._current: Path | None = None
+
+        self.list = QListWidget()
+        self.list.currentItemChanged.connect(self._on_select)
+
+        self.editor = QTextEdit()
+        self.editor.setPlaceholderText("Инструкция для Aloth (Markdown)…")
+
+        save_btn = QPushButton("Сохранить")
+        save_btn.clicked.connect(self._save)
+        new_btn = QPushButton("Новый")
+        new_btn.clicked.connect(self._new)
+        del_btn = QPushButton("Удалить")
+        del_btn.clicked.connect(self._delete)
+
+        btn_row = QHBoxLayout()
+        btn_row.addWidget(save_btn)
+        btn_row.addWidget(new_btn)
+        btn_row.addWidget(del_btn)
+        btn_row.addStretch(1)
+
+        right = QVBoxLayout()
+        right.addWidget(self.editor)
+        right.addLayout(btn_row)
+
+        split = QSplitter(Qt.Horizontal)
+        split.addWidget(self.list)
+        right_box = QWidget()
+        right_box.setLayout(right)
+        split.addWidget(right_box)
+        split.setStretchFactor(0, 0)
+        split.setStretchFactor(1, 1)
+
+        lay = QVBoxLayout(self)
+        lay.addWidget(QLabel("Навыки: файлы .md в доме Aloth, подхватываются как инструкции агенту."))
+        lay.addWidget(split)
+        self._reload()
+
+    def _reload(self) -> None:
+        self.list.blockSignals(True)
+        self.list.clear()
+        for f in sorted(self.dir.glob("*.md")):
+            self.list.addItem(f.name)
+        self.list.blockSignals(False)
+        if self.list.count():
+            self.list.setCurrentRow(0)
+        else:
+            self.editor.clear()
+            self._current = None
+
+    def _on_select(self, current: QListWidgetItem | None, _prev=None) -> None:
+        if current is None:
+            return
+        self._current = self.dir / current.text()
+        self.editor.setPlainText(self._current.read_text(encoding="utf-8"))
+
+    def _save(self) -> None:
+        if self._current:
+            self._current.write_text(self.editor.toPlainText(), encoding="utf-8")
+
+    def _new(self) -> None:
+        n = 1
+        while (self.dir / f"skill-{n}.md").exists():
+            n += 1
+        path = self.dir / f"skill-{n}.md"
+        path.write_text("", encoding="utf-8")
+        self._reload()
+        for i in range(self.list.count()):
+            if self.list.item(i).text() == path.name:
+                self.list.setCurrentRow(i)
+                break
+
+    def _delete(self) -> None:
+        if not self._current:
+            return
+        if QMessageBox.question(self, "Aloth", f"Удалить навык «{self._current.name}»?") != QMessageBox.Yes:
+            return
+        self._current.unlink(missing_ok=True)
+        self._current = None
+        self._reload()
+
+
+class SettingsTab(QWidget):
+    """Матрица тулов security.json: enabled / autoApprove + сохранение."""
+
+    def __init__(self, home: Path):
+        super().__init__()
+        self.policy = SecurityPolicy.load(home)
+        self.table = QTableWidget(len(KNOWN_TOOLS), 3)
+        self.table.setHorizontalHeaderLabels(["Тул", "Включён", "Авто-одобрение"])
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.verticalHeader().setVisible(False)
+        self._boxes: dict[str, tuple[QCheckBox, QCheckBox]] = {}
+
+        for row, name in enumerate(KNOWN_TOOLS):
+            entry = self.policy.matrix().get(name, {"enabled": False, "autoApprove": False})
+            self.table.setItem(row, 0, QTableWidgetItem(name))
+            enabled = QCheckBox()
+            enabled.setChecked(bool(entry["enabled"]))
+            approve = QCheckBox()
+            approve.setChecked(bool(entry["autoApprove"]))
+            self.table.setCellWidget(row, 1, enabled)
+            self.table.setCellWidget(row, 2, approve)
+            self._boxes[name] = (enabled, approve)
+
+        save_btn = QPushButton("Сохранить")
+        save_btn.clicked.connect(self._save)
+        self.status = QLabel("")
+
+        lay = QVBoxLayout(self)
+        lay.addWidget(QLabel("Включённые тулы доступны агенту. «Авто-одобрение» выкл. — "
+                             "GUI спросит перед действием (HITL)."))
+        lay.addWidget(self.table)
+        row = QHBoxLayout()
+        row.addWidget(save_btn)
+        row.addWidget(self.status)
+        row.addStretch(1)
+        lay.addLayout(row)
+
+    def _save(self) -> None:
+        for name, (enabled, approve) in self._boxes.items():
+            self.policy.set_tool(name, enabled.isChecked(), approve.isChecked())
+        self.policy.save()
+        self.status.setText("сохранено ✓")
+
+    def close(self) -> None:
+        self.policy.close()
+
+
 class MainWindow(QMainWindow):
     def __init__(self, profile: str = "readonly"):
         super().__init__()
         self.profile = profile
-        self.store = SessionStore(ensure_home() / "data" / "sessions.db")
+        self.home = ensure_home()
+        self.store = SessionStore(self.home / "data" / "sessions.db")
         self.current_sid: str | None = None
         self.worker: AgentWorker | None = None
         self._build_ui()
@@ -82,6 +294,15 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Aloth")
         self.resize(900, 600)
 
+        self.tabs = QTabWidget()
+        self.tabs.addTab(self._chat_tab(), "Чат")
+        self.tabs.addTab(MemoryTab(MemoryStore(self.home / "data" / "memory.db")), "Память")
+        self.tabs.addTab(SkillsTab(self.home / "skills"), "Навыки")
+        self._settings = SettingsTab(self.home)
+        self.tabs.addTab(self._settings, "Настройки")
+        self.setCentralWidget(self.tabs)
+
+    def _chat_tab(self) -> QWidget:
         self.session_list = QListWidget()
         self.session_list.currentItemChanged.connect(self._on_session_changed)
 
@@ -120,7 +341,10 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
 
-        self.setCentralWidget(splitter)
+        tab = QWidget()
+        lay = QVBoxLayout(tab)
+        lay.addWidget(splitter)
+        return tab
 
     # --- sessions ---
 
@@ -179,6 +403,7 @@ class MainWindow(QMainWindow):
         history = self.store.history(self.current_sid, limit=20)
         self.worker = AgentWorker(text, history[:-1], self.profile, self)
         self.worker.done.connect(self._on_done)
+        self.worker.approval_requested.connect(self._on_approval_request)
         self.worker.start()
 
     def _on_done(self, reply: str, error: str) -> None:
@@ -188,6 +413,18 @@ class MainWindow(QMainWindow):
             self._append("assistant", f"[ошибка] {error}", save=False)
         else:
             self._append("assistant", reply, save=True)
+
+    def _on_approval_request(self, tool: str, args: str) -> None:
+        if self.worker is None:
+            return
+        ret = QMessageBox.question(
+            self,
+            "Aloth — подтверждение",
+            f"Тул «{tool}» хочет:\n{args}\n\nРазрешить?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        self.worker.resolve_approval(ret == QMessageBox.Yes)
 
     def _set_busy(self, busy: bool) -> None:
         self.input.setEnabled(not busy)
@@ -201,6 +438,7 @@ class MainWindow(QMainWindow):
         if self.worker is not None:
             self.worker.wait(2000)
         self.store.close()
+        self._settings.close()
         super().closeEvent(event)
 
 

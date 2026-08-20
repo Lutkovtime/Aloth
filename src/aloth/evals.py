@@ -76,6 +76,34 @@ def _fake_args(prompt: str) -> object:
     return A()
 
 
+def _hitl_case() -> tuple[str, bool, str]:
+    """HITL: autoApprove=false + approver(False) → тул отклонён агентом."""
+    from aloth.core import build_agent
+    from aloth.files import FileTools
+    from aloth.home import ensure_home
+    from aloth.memory import MemoryStore
+    from aloth.security import SecurityPolicy
+    from aloth.shell import Shell
+
+    home = ensure_home()
+    policy = SecurityPolicy.load(home)
+    agent = build_agent(
+        memory=MemoryStore(home / "data" / "memory.db"),
+        files=FileTools(home),
+        shell=Shell(profile="readonly"),
+        security=policy,
+        approver=lambda tool, args: False,  # пользователь всегда отказывает
+    )
+    try:
+        result = asyncio.run(agent.run(
+            "Вызови тул memory_add с фактом 'hittest'. Что получилось?"
+        ))
+        out = result.data if hasattr(result, "data") else str(result)
+    finally:
+        policy.close()
+    return "hitl_denied", "отмен" in out.lower(), out[:200].replace("\n", " ")
+
+
 def _run_cases() -> list[tuple[str, bool, str]]:
     results: list[tuple[str, bool, str]] = []
     for case in CASES:
@@ -87,6 +115,7 @@ def _run_cases() -> list[tuple[str, bool, str]]:
             _cmd_chat(_fake_args(case["prompt"]))
         out = buf.getvalue()
         results.append((case["name"], case["check"](out), out[:200].replace("\n", " ")))
+    results.append(_hitl_case())
     return results
 
 

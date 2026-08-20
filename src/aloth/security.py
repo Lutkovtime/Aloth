@@ -82,6 +82,10 @@ class SecurityPolicy:
         entry = self._tools.get(name)
         return bool(entry and entry.get("enabled"))
 
+    def tool_auto_approve(self, name: str) -> bool:
+        entry = self._tools.get(name)
+        return bool(entry and entry.get("autoApprove"))
+
     def set_tool(self, name: str, enabled: bool, auto_approve: bool | None = None) -> None:
         entry = self._tools.setdefault(name, dict(_DEFAULTS.get(name, {"enabled": False, "autoApprove": False})))
         entry["enabled"] = enabled
@@ -123,6 +127,8 @@ if __name__ == "__main__":  # pragma: no cover — runnable self-check
         # deny-by-default: unknown tool is disabled
         assert not pol.tool_enabled("rm_rf")
         assert pol.tool_enabled("run_command")
+        assert pol.tool_auto_approve("current_time")
+        assert not pol.tool_auto_approve("run_command")
         pol.log("run_command", "echo hi", True, "ok")
         pol.log("run_command", "rm -rf /", False, "запрещено")
         assert len(pol.recent()) == 2

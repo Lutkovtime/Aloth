@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Callable
 
 from pydantic_ai import Agent, RunContext
 
@@ -30,6 +32,18 @@ SYSTEM_PROMPT = (
 )
 
 
+def _load_skills(skills_dir: Path | None) -> str:
+    """Read user skills (~/.aloth/skills/*.md) as prompt blocks. Empty if none."""
+    if not skills_dir or not skills_dir.is_dir():
+        return ""
+    blocks = []
+    for f in sorted(skills_dir.glob("*.md")):
+        text = f.read_text(encoding="utf-8").strip()
+        if text:
+            blocks.append(f"### {f.stem}\n{text}")
+    return "\n\n".join(blocks)
+
+
 def build_agent(
     *,
     model: str = DEFAULT_MODEL,
@@ -38,6 +52,8 @@ def build_agent(
     files: FileTools | None = None,
     shell: Shell | None = None,
     security: SecurityPolicy | None = None,
+    approver: Callable[[str, str], bool] | None = None,
+    skills_dir: Path | None = None,
 ) -> Agent:
     if not (os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("ALOTH_API_KEY")):
         raise ValueError("API key missing: set DEEPSEEK_API_KEY or ALOTH_API_KEY")
@@ -46,6 +62,9 @@ def build_agent(
     prompt = system_prompt
     if facts:
         prompt += "\n\nФакты о пользователе:\n- " + "\n- ".join(facts)
+    skills = _load_skills(skills_dir)
+    if skills:
+        prompt += "\n\nНавыки (инструкции пользователя):\n" + skills
 
     agent = Agent(model, system_prompt=prompt)
 
@@ -56,11 +75,22 @@ def build_agent(
         if security is not None:
             security.log(name, args, allowed, reason)
 
+    def _check(name: str, args: str) -> bool:
+        """HITL gate: ask the user before tools with autoApprove=false (GUI only)."""
+        if security is None or approver is None or security.tool_auto_approve(name):
+            return True
+        ok = approver(name, args)
+        if not ok:
+            _audit(name, args, False, "отменено пользователем")
+        return ok
+
     if _enabled("current_time"):
 
         @agent.tool
         def current_time(ctx: RunContext[None]) -> str:
             """Current date and time (UTC)."""
+            if not _check("current_time", ""):
+                return "отменено пользователем"
             value = datetime.now(timezone.utc).isoformat()
             _audit("current_time", "", True)
             return value
@@ -70,6 +100,8 @@ def build_agent(
         @agent.tool
         def memory_add(ctx: RunContext[None], fact: str) -> str:
             """Save a durable fact about the user (preferences, environment)."""
+            if not _check("memory_add", fact):
+                return "отменено пользователем"
             memory.add(fact)
             _audit("memory_add", fact, True)
             return "запомнил"
@@ -79,6 +111,8 @@ def build_agent(
         @agent.tool
         def memory_forget(ctx: RunContext[None], fact: str) -> str:
             """Remove a previously saved fact."""
+            if not _check("memory_forget", fact):
+                return "отменено пользователем"
             removed = memory.forget(fact)
             _audit("memory_forget", fact, removed, "ok" if removed else "не найдено")
             return "удалено" if removed else "не найдено"
@@ -88,6 +122,8 @@ def build_agent(
         @agent.tool
         def file_read(ctx: RunContext[None], path: str) -> str:
             """Read a file inside the agent home (~/.aloth). Path is home-relative."""
+            if not _check("file_read", path):
+                return "отменено пользователем"
             try:
                 value = files.read(path)
             except ValueError as e:
@@ -101,6 +137,8 @@ def build_agent(
         @agent.tool
         def file_write(ctx: RunContext[None], path: str, content: str) -> str:
             """Write a file inside the agent home (~/.aloth). Path is home-relative."""
+            if not _check("file_write", f"{path}: {content[:100]}"):
+                return "отменено пользователем"
             try:
                 value = files.write(path, content)
             except ValueError as e:
@@ -114,6 +152,8 @@ def build_agent(
         @agent.tool
         def search_web(ctx: RunContext[None], query: str) -> str:
             """Search the web (read-only). Returns titles and URLs."""
+            if not _check("search_web", query):
+                return "отменено пользователем"
             value = web_search(query)
             _audit("search_web", query, True)
             return value
@@ -123,6 +163,8 @@ def build_agent(
         @agent.tool
         def run_command(ctx: RunContext[None], command: str) -> str:
             """Run a shell command (allowed by the current trust profile)."""
+            if not _check("run_command", command):
+                return "отменено пользователем"
             try:
                 value = shell.run(command)
             except ShellError as e:

@@ -37,7 +37,7 @@ def _cmd_chat(args: argparse.Namespace) -> int:
     shell = Shell(profile=args.profile)
     policy = SecurityPolicy.load(home)
     agent = build_agent(model=args.model, memory=mem, files=files, shell=shell,
-                        security=policy)
+                        security=policy, skills_dir=home / "skills")
     sid = args.session or store.create_session()
 
     async def run() -> str:
