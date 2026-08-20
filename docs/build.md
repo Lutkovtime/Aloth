@@ -7,11 +7,13 @@
 ```bash
 uv run pyinstaller --noconfirm --name aloth --onedir --collect-submodules aloth \
   --exclude-module logfire --copy-metadata genai_prices --copy-metadata pydantic_ai_slim \
-  --copy-metadata mcp --icon assets/logo.ico --distpath dist --workpath build scripts/launcher_cli.py
+  --copy-metadata mcp --icon assets/logo.ico --add-data "assets/logo.ico;assets" \
+  --distpath dist --workpath build scripts/launcher_cli.py
 
 uv run pyinstaller --noconfirm --name aloth-gui --onedir --windowed --collect-submodules aloth \
   --exclude-module logfire --copy-metadata genai_prices --copy-metadata pydantic_ai_slim \
-  --copy-metadata mcp --icon assets/logo.ico --distpath dist --workpath build scripts/launcher_gui.py
+  --copy-metadata mcp --icon assets/logo.ico --add-data "assets/logo.ico;assets" \
+  --distpath dist --workpath build scripts/launcher_gui.py
 ```
 
 Флаги обязательны:

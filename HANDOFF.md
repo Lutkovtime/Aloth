@@ -89,15 +89,25 @@ claude-sonnet-5 ($1.6/8) — архитектура/рефакторинг; clau
   installer.iss (Inno 6, PrivilegesRequired=lowest) → Aloth-Setup-0.1.0.exe.
   Проверено: тихая установка в чистый каталог, aloth.exe --help,
   aloth-gui.exe жив (offscreen). Сборка: docs/build.md. README + LICENSE (MIT).
+- ✅ UX-фиксы (21.08): GUI — трей (close→hide, меню: открыть/выход),
+  AppUserModelID, иконка окна, QSS тёплая коричнево-золотая тема;
+  онбординг-мастер: 3 кнопки (Всё, что есть → profile=full+все тулы /
+  Я выберу сам → readonly / Голое ядро → без run_command,file_write) +
+  «Пропустить» + «Где взять ключ?» (DeepSeek) + «Позже»; API-ключ
+  редактируется во вкладке «Настройки». installer.iss: уникальный AppId,
+  выбор пути (DisableDirPage=no), ярлыки GUI + «Aloth (терминал)»
+  (scripts/aloth.cmd) + Удалить, publisher, иконка setup; деинсталлятор
+  спрашивает про удаление ~/.aloth ([Code] DelTree, default Нет).
 
 ## Следующий шаг
 
-1. **Бета** — публикация репозитория (сделать public), тест на чистой
-   машине (Windows без Python), релиз Aloth-Setup-0.1.0.exe в GitHub Releases.
-2. Первые пользовательские фидбеки → итерации.
-3. Известные хвосты: icon на ярлыке/окне (assets/logo.ico уже в сборках exe);
-   HITL в CLI (сейчас только GUI); профиль full/readonly в настройках GUI
-   (пока в онбординге и флаге).
+1. **Бета-тест Саши** — установить Aloth-Setup-0.1.0.exe: онбординг
+   (3 кнопки → ключ → профиль), чат через DeepSeek, трей, терминал-ярлык,
+   настройки, удаление (с данными).
+2. По фидбеку — правки; потом публикация (public + Releases).
+3. Из плана дальше (не для первого теста): RAG-память (ChromaDB/sqlite-vec),
+   стиль/личность (SOUL.md-аналог во вкладке), локальные модели/OpenRouter,
+   апдейтер с подписью, Linux (.deb/AppImage).
 
 ## Нюансы (копать не заново)
 

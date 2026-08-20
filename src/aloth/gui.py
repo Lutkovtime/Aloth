@@ -1,9 +1,10 @@
-"""Aloth GUI — чат с историей сессий + вкладки «Память», «Навыки», «Настройки» (PySide6).
+"""Aloth GUI — чат + вкладки «Память», «Навыки», «Настройки» (PySide6).
 
 Окно: вкладка «Чат» (сессии слева, переписка справа + поле ввода),
 «Память» — факты L1, «Навыки» — файлы ~/.aloth/skills/*.md,
-«Настройки» — матрица тулов (security.json) + HITL.
+«Настройки» — матрица тулов + API-ключ (HITL).
 Агент живёт в отдельном потоке (QThread), UI не замирает.
+Приложение сворачивается в системный трей (Выход — через меню трея).
 Запуск: `aloth gui` или `python -m aloth.gui`.
 """
 
@@ -16,7 +17,8 @@ import sys
 import threading
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThread, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -29,9 +31,12 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSplitter,
+    QStackedWidget,
+    QSystemTrayIcon,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -49,6 +54,56 @@ from aloth.memory import MemoryStore
 from aloth.security import KNOWN_TOOLS, SecurityPolicy
 from aloth.sessions import SessionStore
 from aloth.shell import Shell
+
+# Тёплая коричнево-золотая тема.
+QSS = """
+QMainWindow, QDialog, QMessageBox { background: #f7f1e3; }
+QWidget { color: #3e2f23; font-size: 13px; }
+QLabel { background: transparent; }
+QTabWidget::pane { border: 1px solid #d8c9a8; border-radius: 4px; background: #f7f1e3; }
+QTabBar::tab { background: #efe5d0; color: #5c4a33; padding: 8px 18px;
+               border: 1px solid #d8c9a8; border-bottom: none;
+               border-top-left-radius: 6px; border-top-right-radius: 6px; }
+QTabBar::tab:selected { background: #f7f1e3; color: #8b5e3c; font-weight: bold; }
+QPushButton { background: #8b5e3c; color: #fdf9f0; border: none;
+              border-radius: 6px; padding: 7px 16px; }
+QPushButton:hover { background: #a3704a; }
+QPushButton:pressed { background: #71492f; }
+QPushButton:disabled { background: #c9bda8; }
+QPushButton[flat="true"] { background: transparent; color: #8b5e3c; padding: 2px; }
+QLineEdit, QTextEdit, QListWidget, QTableWidget, QComboBox, QTextBrowser {
+    background: #fdf9f0; border: 1px solid #d8c9a8; border-radius: 6px;
+    padding: 5px; selection-background-color: #8b5e3c; selection-color: #fdf9f0; }
+QListWidget::item { padding: 4px 6px; border-radius: 4px; }
+QListWidget::item:selected { background: #8b5e3c; color: #fdf9f0; }
+QListWidget::item:hover:!selected { background: #efe5d0; }
+QHeaderView::section { background: #efe5d0; color: #5c4a33; border: none; padding: 5px; }
+QSplitter::handle { background: #d8c9a8; }
+QToolTip { background: #fdf9f0; color: #3e2f23; border: 1px solid #d8c9a8; }
+QMenu { background: #fdf9f0; border: 1px solid #d8c9a8; }
+QMenu::item { padding: 6px 22px; }
+QMenu::item:selected { background: #8b5e3c; color: #fdf9f0; }
+"""
+
+APP_ID = "Lutkovtime.Aloth"
+
+
+def _set_app_id() -> None:
+    """Windows: собственная иконка в панели задач/трее, без группировки с python."""
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
+    except Exception:  # noqa: BLE001 — non-Windows или нет прав
+        pass
+
+
+def _icon() -> QIcon:
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
+    for name in ("logo.ico", "logo.png"):
+        p = base / "assets" / name
+        if p.exists():
+            return QIcon(str(p))
+    return QIcon()
 
 
 class AgentWorker(QThread):
@@ -241,11 +296,28 @@ class SkillsTab(QWidget):
 
 
 class SettingsTab(QWidget):
-    """Матрица тулов security.json: enabled / autoApprove + сохранение."""
+    """API-ключ + матрица тулов security.json: enabled / autoApprove + сохранение."""
+
+    key_saved = Signal(str)
 
     def __init__(self, home: Path):
         super().__init__()
+        self.home = home
         self.policy = SecurityPolicy.load(home)
+
+        self.key_edit = QLineEdit()
+        self.key_edit.setEchoMode(QLineEdit.Password)
+        self.key_edit.setPlaceholderText("DeepSeek API key (sk-…)")
+        self.key_edit.setText(config.load(home).api_key)
+        key_link = QPushButton("Где взять ключ?")
+        key_link.setFlat(True)
+        key_link.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://platform.deepseek.com/api_keys"))
+        )
+        key_row = QHBoxLayout()
+        key_row.addWidget(self.key_edit, 1)
+        key_row.addWidget(key_link)
+
         self.table = QTableWidget(len(KNOWN_TOOLS), 3)
         self.table.setHorizontalHeaderLabels(["Тул", "Включён", "Авто-одобрение"])
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -268,6 +340,9 @@ class SettingsTab(QWidget):
         self.status = QLabel("")
 
         lay = QVBoxLayout(self)
+        lay.addWidget(QLabel("API-ключ (хранится только на этом компьютере):"))
+        lay.addLayout(key_row)
+        lay.addSpacing(8)
         lay.addWidget(QLabel("Включённые тулы доступны агенту. «Авто-одобрение» выкл. — "
                              "GUI спросит перед действием (HITL)."))
         lay.addWidget(self.table)
@@ -281,6 +356,10 @@ class SettingsTab(QWidget):
         for name, (enabled, approve) in self._boxes.items():
             self.policy.set_tool(name, enabled.isChecked(), approve.isChecked())
         self.policy.save()
+        settings = config.load(self.home)
+        settings.api_key = self.key_edit.text().strip()
+        config.save(self.home, settings)
+        self.key_saved.emit(settings.api_key)
         self.status.setText("сохранено ✓")
 
     def close(self) -> None:
@@ -301,37 +380,186 @@ class MainWindow(QMainWindow):
         self.store = SessionStore(self.home / "data" / "sessions.db")
         self.current_sid: str | None = None
         self.worker: AgentWorker | None = None
+        self._really_quit = False
         self._build_ui()
         self._reload_sessions()
+        self._setup_tray()
+
+    # --- онбординг (первый запуск) ---
 
     def _setup_dialog(self) -> bool:
-        """Первый запуск: API-ключ DeepSeek + профиль доверия. True = сохранено."""
+        """Мастер первого запуска: три кнопки доверия → API-ключ + профиль.
+
+        True — продолжить (ключ может быть пустым — настроят позже).
+        """
         dlg = QDialog(self)
-        dlg.setWindowTitle("Aloth — первый запуск")
-        key = QLineEdit()
-        key.setEchoMode(QLineEdit.Password)
-        key.setPlaceholderText("DeepSeek API key (sk-…)")
+        dlg.setWindowTitle("Добро пожаловать в Aloth")
+        dlg.setWindowIcon(_icon())
+        dlg.resize(480, 360)
+
+        stack = QStackedWidget()
+
+        # Страница 1: выбор режима.
+        page1 = QWidget()
+        lbl1 = QLabel(
+            "Привет! Я — Aloth, твой персональный ассистент.\n\n"
+            "Как будем работать? Всё можно поменять потом во вкладке «Настройки»."
+        )
+        lbl1.setWordWrap(True)
+
         combo = QComboBox()
         combo.addItems(config.PROFILES)
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        buttons.button(QDialogButtonBox.Ok).setText("Сохранить")
-        buttons.button(QDialogButtonBox.Cancel).setText("Отмена")
-        buttons.accepted.connect(dlg.accept)
-        buttons.rejected.connect(dlg.reject)
+
+        def make_big(text: str, tip: str, on_click) -> QPushButton:
+            b = QPushButton(text)
+            b.setToolTip(tip)
+            b.setMinimumHeight(44)
+            b.clicked.connect(on_click)
+            return b
+
+        result: dict = {"profile": "readonly"}
+
+        def choose(profile: str, trust: str) -> None:
+            result["profile"] = profile
+            combo.setCurrentText(profile)
+            if trust == "all":
+                pol = SecurityPolicy.load(self.home)
+                for name in KNOWN_TOOLS:
+                    pol.set_tool(name, True)
+                pol.save()
+                pol.close()
+            elif trust == "core":
+                pol = SecurityPolicy.load(self.home)
+                for name in ("run_command", "file_write"):
+                    pol.set_tool(name, False)
+                pol.save()
+                pol.close()
+            stack.setCurrentIndex(1)
+
+        b_all = make_big("Всё, что есть", "Включить всё: файлы, терминал, веб, память — с подтверждениями там, где нужно",
+                         lambda: choose("full", "all"))
+        b_choose = make_big("Я выберу сам", "Начнём безопасно, потом настроишь во вкладке «Настройки»",
+                            lambda: choose("readonly", "choose"))
+        b_core = make_big("Голое ядро", "Минимум: чат, память, веб — без терминала и записи файлов",
+                          lambda: choose("readonly", "core"))
+        b_skip = QPushButton("Пропустить")
+        b_skip.setToolTip("Открыть чат — настроишь позже")
+        b_skip.clicked.connect(lambda: finish(key=""))
+        lay1 = QVBoxLayout(page1)
+        lay1.addWidget(lbl1)
+        lay1.addSpacing(8)
+        for b in (b_all, b_choose, b_core):
+            lay1.addWidget(b)
+        lay1.addWidget(b_skip)
+        lay1.addStretch(1)
+
+        # Страница 2: ключ + профиль.
+        page2 = QWidget()
+        lbl2 = QLabel(
+            "Почти готово. Вставь API-ключ DeepSeek — без него агент не отвечает.\n"
+            "(Ключ хранится только на этом компьютере.)"
+        )
+        lbl2.setWordWrap(True)
+        key = QLineEdit()
+        key.setEchoMode(QLineEdit.Password)
+        key.setPlaceholderText("sk-…")
+        key.returnPressed.connect(lambda: finish(key=key.text()))
+        key_link = QPushButton("Где взять ключ?")
+        key_link.setFlat(True)
+        key_link.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://platform.deepseek.com/api_keys"))
+        )
+        prof_row = QHBoxLayout()
+        prof_row.addWidget(QLabel("Профиль доверия:"))
+        prof_row.addWidget(combo, 1)
+
+        def finish(key: str = "") -> None:
+            self.api_key = key.strip()
+            config.save(self.home, config.Settings(api_key=self.api_key,
+                                                   profile=combo.currentText()))
+            dlg.accept()
+
+        b_done = QPushButton("Готово")
+        b_done.setMinimumHeight(40)
+        b_done.clicked.connect(lambda: finish(key=key.text()))
+        b_later = QPushButton("Позже")
+        b_later.setToolTip("Продолжить без ключа — ввести можно во вкладке «Настройки»")
+        b_later.clicked.connect(lambda: finish(key=""))
+        lay2 = QVBoxLayout(page2)
+        lay2.addWidget(lbl2)
+        lay2.addWidget(key)
+        lay2.addWidget(key_link)
+        lay2.addLayout(prof_row)
+        lay2.addStretch(1)
+        lay2.addWidget(b_done)
+        lay2.addWidget(b_later)
+
+        stack.addWidget(page1)
+        stack.addWidget(page2)
         lay = QVBoxLayout(dlg)
-        lay.addWidget(QLabel("Введи API-ключ DeepSeek и выбери профиль доверия."))
-        lay.addWidget(key)
-        lay.addWidget(combo)
-        lay.addWidget(buttons)
-        if dlg.exec() != QDialog.Accepted:
-            return False
-        self.api_key = key.text().strip()
-        config.save(self.home, config.Settings(api_key=self.api_key,
-                                               profile=combo.currentText()))
-        return True
+        lay.addWidget(stack)
+        return dlg.exec() == QDialog.Accepted
+
+    # --- трей ---
+
+    def _setup_tray(self) -> None:
+        self.tray = None
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+        self.tray = QSystemTrayIcon(_icon(), self)
+        self.tray.setToolTip("Aloth")
+        menu = QMenu(self)
+        act_open = menu.addAction("Открыть Aloth")
+        act_open.triggered.connect(self._show_from_tray)
+        menu.addSeparator()
+        act_quit = menu.addAction("Выход")
+        act_quit.triggered.connect(self._quit)
+        self.tray.setContextMenu(menu)
+        self.tray.activated.connect(self._on_tray_activated)
+        self.tray.show()
+        self._hide_count = 0
+
+    def _show_from_tray(self) -> None:
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def _on_tray_activated(self, reason) -> None:
+        if reason == QSystemTrayIcon.Trigger:
+            if self.isVisible():
+                self.hide()
+            else:
+                self._show_from_tray()
+
+    def _quit(self) -> None:
+        self._really_quit = True
+        if self.tray:
+            self.tray.hide()
+        self.close()
+
+    def closeEvent(self, event) -> None:  # noqa: N802 — Qt override
+        if not self._really_quit and self.tray is not None:
+            # Закрытие крестиком = свернуть в трей.
+            event.ignore()
+            self.hide()
+            if self._hide_count < 3:
+                self._hide_count += 1
+                self.tray.showMessage(
+                    "Aloth", "Aloth продолжает работать в трее. Выход — через иконку в трее.",
+                    QSystemTrayIcon.Information, 3000)
+            return
+        if self.worker is not None:
+            self.worker.wait(2000)
+        self.store.close()
+        if getattr(self, "_settings", None) is not None:
+            self._settings.close()
+        super().closeEvent(event)
+
+    # --- ui ---
 
     def _build_ui(self) -> None:
         self.setWindowTitle("Aloth")
+        self.setWindowIcon(_icon())
         self.resize(900, 600)
 
         self.tabs = QTabWidget()
@@ -339,8 +567,12 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(MemoryTab(MemoryStore(self.home / "data" / "memory.db")), "Память")
         self.tabs.addTab(SkillsTab(self.home / "skills"), "Навыки")
         self._settings = SettingsTab(self.home)
+        self._settings.key_saved.connect(self._on_key_saved)
         self.tabs.addTab(self._settings, "Настройки")
         self.setCentralWidget(self.tabs)
+
+    def _on_key_saved(self, key: str) -> None:
+        self.api_key = key
 
     def _chat_tab(self) -> QWidget:
         self.session_list = QListWidget()
@@ -436,6 +668,12 @@ class MainWindow(QMainWindow):
         text = self.input.text().strip()
         if not text or self.worker is not None or self.current_sid is None:
             return
+        if not (os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("ALOTH_API_KEY")
+                or self.api_key):
+            QMessageBox.information(
+                self, "Aloth",
+                "API-ключ не настроен. Введи его во вкладке «Настройки» → поле API-ключ.")
+            return
         self.input.clear()
         self._append("user", text, save=True)
         self._set_busy(True)
@@ -475,13 +713,6 @@ class MainWindow(QMainWindow):
                 '<p style="color:#888;margin:4px 0"><i>Aloth печатает…</i></p>'
             )
 
-    def closeEvent(self, event) -> None:  # noqa: N802 — Qt override
-        if self.worker is not None:
-            self.worker.wait(2000)
-        self.store.close()
-        self._settings.close()
-        super().closeEvent(event)
-
 
 def main(argv: list[str] | None = None) -> int:
     import argparse
@@ -492,7 +723,11 @@ def main(argv: list[str] | None = None) -> int:
                    help="профиль доверия для shell (default: из настроек или readonly)")
     args = p.parse_args(argv)
 
+    _set_app_id()
     app = QApplication(sys.argv[:1])
+    app.setApplicationName("Aloth")
+    app.setWindowIcon(_icon())
+    app.setStyleSheet(QSS)
     win = MainWindow(profile=args.profile)
     win.show()
     return app.exec()
