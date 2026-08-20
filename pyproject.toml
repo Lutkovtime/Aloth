@@ -12,6 +12,7 @@ dependencies = [
     "ddgs>=9.15.0",
     "httpx>=0.28.1",
     "pydantic-ai>=0.1",
+    "pyside6>=6.11.2",
 ]
 
 [project.scripts]

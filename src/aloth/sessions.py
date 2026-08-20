@@ -57,6 +57,14 @@ class SessionStore:
         )
         self._conn.commit()
 
+    def list_sessions(self, limit: int = 100) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT id, title, created_at FROM sessions "
+            "ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def history(self, session_id: str, limit: int = 50) -> list[dict]:
         rows = self._conn.execute(
             "SELECT role, content FROM messages WHERE session_id = ? "

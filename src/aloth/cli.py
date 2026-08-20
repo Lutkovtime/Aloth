@@ -66,6 +66,11 @@ def _cmd_search(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_gui(args: argparse.Namespace) -> int:
+    from aloth.gui import main as gui_main
+    return gui_main(["--profile", args.profile])
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="aloth", description="Aloth (Amazing Sloth)")
     p.add_argument("--model", default="deepseek:deepseek-chat")
@@ -82,6 +87,9 @@ def main(argv: list[str] | None = None) -> int:
 
     home = sub.add_parser("home", help="показать дом агента")
     home.set_defaults(fn=_cmd_home)
+
+    gui = sub.add_parser("gui", help="графический интерфейс (чат)")
+    gui.set_defaults(fn=_cmd_gui)
 
     search = sub.add_parser("search", help="поиск по истории сессий")
     search.add_argument("query")
