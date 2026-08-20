@@ -2,6 +2,7 @@
 
 > Новая сессия: прочитай этот файл + `C:/Hermes/Brain-vault/Projects/aloth-plan.md`
 > (источник правды — весь план продукта). Продолжай с «Следующий шаг» ниже.
+> Проект: **C:/Projects/Aloth** (перенесён из C:/Hermes/Aloth 21.08).
 
 ## Что это
 
@@ -10,7 +11,7 @@ MIT, Windows+Linux. Референсы: Hermes (наш стек) + OpenClaw. С�
 
 ## Код
 
-`C:/Hermes/Aloth` — uv-проект, src-layout, Python 3.11, pydantic-ai 2.32.1.
+`C:/Projects/Aloth` — uv-проект, src-layout, Python 3.11, pydantic-ai 2.32.1.
 GitHub: `Lutkovtime/Aloth` (private, ветка main, push настроен).
 
 ```
