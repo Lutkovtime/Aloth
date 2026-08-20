@@ -11,23 +11,31 @@ MIT, Windows+Linux. Референсы: Hermes (наш стек) + OpenClaw. С�
 ## Код
 
 `C:/Hermes/Aloth` — uv-проект, src-layout, Python 3.11, pydantic-ai 2.32.1.
+GitHub: `Lutkovtime/Aloth` (private, ветка main, push настроен).
 
 ```
 src/aloth/
   __init__.py   версия 0.1.0
-  home.py       дом ~/.aloth (config/data/skills/backups/logs/runtime), self-check есть
-  sessions.py   SQLite + FTS5 (сессии, сообщения, поиск), self-check есть
-  core.py       Agent('deepseek:deepseek-chat') + тул current_time
+  home.py       дом ~/.aloth (config/data/skills/backups/logs/runtime), self-check
+  sessions.py   SQLite + FTS5 (сессии, сообщения, поиск), self-check
+  memory.py     память L1: факты (add/forget/all), self-check
+  files.py      файловые тулы, только в пределах дома, escape-safe, self-check
+  web.py        веб-поиск (ddgs, без ключей), self-check
+  core.py       Agent + тулы: current_time, memory_add/forget, file_read/write, search_web
   cli.py        aloth chat "...", aloth home, aloth search "query"
-pyproject.toml  entry point: aloth = aloth.cli:main, MIT
+pyproject.toml  entry point: aloth = aloth.cli:main, MIT; deps: pydantic-ai, ddgs
 ```
 
 ## Статус
 
-- ✅ Пакет собирается, entry point работает, self-check'и home/sessions проходят.
-- ⚠️ **Боевой чат НЕ проверен** после фикса: тулы в PydanticAI 2.32 требуют
-  `ctx: RunContext[None]` первым аргументом (был TypeError, исправлено).
-- Проект НЕ закоммичен в git (только uv-инициализация), GitHub не создан.
+- ✅ Боевой чат проверен: loop + все тулы работают (время, память, файлы, веб).
+- ✅ Память L1: факты в системном промпте, memory_add/forget — работают.
+- ✅ Файлы: read/write только в ~/.aloth, ../ и absolute вне дома отклоняются.
+- ✅ Веб: search_web через ddgs (без API-ключей).
+- ✅ GitHub: private Lutkovtime/Aloth, ветка main, первые коммиты запушены.
+- ⚠️ Нюанс: DeepSeek flash сам НЕ вызывает тул без явной просьбы («запомни» без
+  «вызови тул» → отвечает «запомнил», но не вызывает). Для продакшена — думать
+  (лучший системный промпт / tool_choice / guardrails). Не баг, а особенность модели.
 
 ## Запуск
 
@@ -46,15 +54,21 @@ claude-sonnet-5 ($1.6/8) — архитектура/рефакторинг; clau
 
 ## Следующий шаг
 
-1. Боевой тест: `uv run aloth chat "Привет! Который час по UTC?"` — убедиться, что loop + тул работают.
-2. git init commit (ветка main, .gitignore уже есть), GitHub private repo (gh авторизован).
-3. По чеклисту плана (Процесс разработки): тулы (память/файлы/терминал/веб) → evals →
-   GUI PySide6 → безопасность (per-tool deny-by-default) → установщик (PyInstaller onedir + Inno).
+По чеклисту плана (Процесс разработки): тулы готовы (память/файлы/веб) →
+1. **Evals** — реальные задачи с проверяемыми исходами для имеющихся тулов
+   (память: запомнил→в новой сессии видит; файлы: запись→чтение; веб: поиск→ссылки).
+   Простейший eval-runner: список кейсов {prompt, проверка}, прогон через aloth chat,
+   отчёт pass/fail.
+2. **Терминал** — НЕ добавлять без системы одобрений (per-tool deny-by-default,
+   профили доверия). Это следующий блок после evals — вместе с безопасностью.
+3. GUI PySide6 → безопасность → установщик (PyInstaller onedir + Inno).
 
 ## Нюансы (копать не заново)
 
 - PydanticAI 2.32.1: тулы = `@agent.tool` + `ctx: RunContext[None]`; модель строкой
   `deepseek:deepseek-chat` (known model), ключ из env DEEPSEEK_API_KEY.
-- uv_build жёстко ждёт src-layout (`src/aloth/__init__.py`) — корневой пакет не соберётся.
+- SQLite-соединение для тулов — `check_same_thread=False` (тулы в event-loop thread).
+- Path в файловых тулах — Windows-сепаратор: нормализовать `\` → `/` при выводе.
+- uv_build жёстко ждёт src-layout (`src/aloth/__init__.py`).
 - Entry point в pyproject: `aloth = "aloth.cli:main"`.
 - Nous inference: /v1/models требует браузерный UA (Cloudflare 1010 на urllib без него).
