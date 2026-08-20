@@ -8,6 +8,7 @@ import sys
 
 from aloth.core import build_agent
 from aloth.home import ensure_home, home_dir
+from aloth.memory import MemoryStore
 from aloth.sessions import SessionStore
 
 
@@ -16,13 +17,19 @@ def _store() -> SessionStore:
     return SessionStore(home / "data" / "sessions.db")
 
 
+def _mem() -> MemoryStore:
+    home = ensure_home()
+    return MemoryStore(home / "data" / "memory.db")
+
+
 def _cmd_chat(args: argparse.Namespace) -> int:
     if not args.message:
         print("Пустое сообщение. Пример: aloth chat \"привет\"", file=sys.stderr)
         return 2
 
     store = _store()
-    agent = build_agent(model=args.model)
+    mem = _mem()
+    agent = build_agent(model=args.model, memory=mem)
     sid = args.session or store.create_session()
 
     async def run() -> str:
