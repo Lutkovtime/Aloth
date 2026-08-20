@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 
 from pydantic_ai import Agent, RunContext
 
+from aloth.files import FileTools
 from aloth.memory import MemoryStore
 
 DEFAULT_MODEL = "deepseek:deepseek-chat"
@@ -27,6 +28,7 @@ def build_agent(
     model: str = DEFAULT_MODEL,
     system_prompt: str = SYSTEM_PROMPT,
     memory: MemoryStore | None = None,
+    files: FileTools | None = None,
 ) -> Agent:
     if not (os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("ALOTH_API_KEY")):
         raise ValueError("API key missing: set DEEPSEEK_API_KEY or ALOTH_API_KEY")
@@ -55,5 +57,17 @@ def build_agent(
         def memory_forget(ctx: RunContext[None], fact: str) -> str:
             """Remove a previously saved fact."""
             return "удалено" if memory.forget(fact) else "не найдено"
+
+    if files is not None:
+
+        @agent.tool
+        def file_read(ctx: RunContext[None], path: str) -> str:
+            """Read a file inside the agent home (~/.aloth). Path is home-relative."""
+            return files.read(path)
+
+        @agent.tool
+        def file_write(ctx: RunContext[None], path: str, content: str) -> str:
+            """Write a file inside the agent home (~/.aloth). Path is home-relative."""
+            return files.write(path, content)
 
     return agent

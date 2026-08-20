@@ -7,6 +7,7 @@ import asyncio
 import sys
 
 from aloth.core import build_agent
+from aloth.files import FileTools
 from aloth.home import ensure_home, home_dir
 from aloth.memory import MemoryStore
 from aloth.sessions import SessionStore
@@ -29,7 +30,9 @@ def _cmd_chat(args: argparse.Namespace) -> int:
 
     store = _store()
     mem = _mem()
-    agent = build_agent(model=args.model, memory=mem)
+    home = ensure_home()
+    files = FileTools(home)
+    agent = build_agent(model=args.model, memory=mem, files=files)
     sid = args.session or store.create_session()
 
     async def run() -> str:
