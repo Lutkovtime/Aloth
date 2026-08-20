@@ -14,6 +14,7 @@ from pydantic_ai import Agent, RunContext
 
 from aloth.files import FileTools
 from aloth.memory import MemoryStore
+from aloth.web import web_search
 
 DEFAULT_MODEL = "deepseek:deepseek-chat"
 
@@ -69,5 +70,10 @@ def build_agent(
         def file_write(ctx: RunContext[None], path: str, content: str) -> str:
             """Write a file inside the agent home (~/.aloth). Path is home-relative."""
             return files.write(path, content)
+
+    @agent.tool
+    def search_web(ctx: RunContext[None], query: str) -> str:
+        """Search the web (read-only). Returns titles and URLs."""
+        return web_search(query)
 
     return agent
