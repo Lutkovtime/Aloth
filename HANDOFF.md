@@ -21,21 +21,29 @@ src/aloth/
   memory.py     память L1: факты (add/forget/all), self-check
   files.py      файловые тулы, только в пределах дома, escape-safe, self-check
   web.py        веб-поиск (ddgs, без ключей), self-check
-  core.py       Agent + тулы: current_time, memory_add/forget, file_read/write, search_web
-  cli.py        aloth chat "...", aloth home, aloth search "query"
+  shell.py      терминал: deny-by-default, профили readonly/full, self-check
+  core.py       Agent + тулы: current_time, memory_add/forget, file_read/write,
+                search_web, run_command
+  cli.py        aloth chat "...", aloth home, aloth search "query"; --profile
+  evals.py      eval-runner: 6 кейсов, прогон в изолированном ALOTH_HOME
 pyproject.toml  entry point: aloth = aloth.cli:main, MIT; deps: pydantic-ai, ddgs
 ```
 
 ## Статус
 
-- ✅ Боевой чат проверен: loop + все тулы работают (время, память, файлы, веб).
-- ✅ Память L1: факты в системном промпте, memory_add/forget — работают.
+- ✅ Боевой чат проверен: loop + все тулы работают.
+- ✅ Память L1: факты в системном промпте, memory_add/forget.
 - ✅ Файлы: read/write только в ~/.aloth, ../ и absolute вне дома отклоняются.
 - ✅ Веб: search_web через ddgs (без API-ключей).
-- ✅ GitHub: private Lutkovtime/Aloth, ветка main, первые коммиты запушены.
+- ✅ Терминал: run_command с профилями доверия. readonly — только безопасные
+  команды; full — всё кроме всегда-запрещённых (rm/mv/sudo/...); deny wins.
+  Флаг: `aloth --profile full chat "..."` (глобальный, до подкоманды).
+- ✅ Evals: `ALOTH_HOME=$(mktemp -d) DEEPSEEK_API_KEY=... uv run python -m aloth.evals`
+  — 6/6 pass (время/память/файлы/веб/shell-блокировка).
+- ✅ GitHub: private Lutkovtime/Aloth, ветка main.
 - ⚠️ Нюанс: DeepSeek flash сам НЕ вызывает тул без явной просьбы («запомни» без
   «вызови тул» → отвечает «запомнил», но не вызывает). Для продакшена — думать
-  (лучший системный промпт / tool_choice / guardrails). Не баг, а особенность модели.
+  (лучший системный промпт / tool_choice / guardrails).
 
 ## Запуск
 
@@ -43,6 +51,7 @@ pyproject.toml  entry point: aloth = aloth.cli:main, MIT; deps: pydantic-ai, ddg
 cd /c/Hermes/Aloth
 export DEEPSEEK_API_KEY=<из .env Hermes>
 uv run aloth chat "привет"
+uv run aloth --profile full chat "покажи дату"
 ```
 
 ## Модели-стратегия (утверждена)
@@ -54,14 +63,13 @@ claude-sonnet-5 ($1.6/8) — архитектура/рефакторинг; clau
 
 ## Следующий шаг
 
-По чеклисту плана (Процесс разработки): тулы готовы (память/файлы/веб) →
-1. **Evals** — реальные задачи с проверяемыми исходами для имеющихся тулов
-   (память: запомнил→в новой сессии видит; файлы: запись→чтение; веб: поиск→ссылки).
-   Простейший eval-runner: список кейсов {prompt, проверка}, прогон через aloth chat,
-   отчёт pass/fail.
-2. **Терминал** — НЕ добавлять без системы одобрений (per-tool deny-by-default,
-   профили доверия). Это следующий блок после evals — вместе с безопасностью.
-3. GUI PySide6 → безопасность → установщик (PyInstaller onedir + Inno).
+По чеклисту плана (Процесс разработки): тулы + evals готовы →
+1. **GUI PySide6** — чат + панель управления (список сессий, настройки,
+   память, навыки). Старт: простейшее окно чата с историей сессий, потом вкладки.
+2. **Безопасность (полная)** — per-tool матрица {enabled, autoApprove} в
+   настройках GUI, canonicalization команд, audit-log. Сейчас — только
+   задел: shell-профили deny-by-default.
+3. Установщик (PyInstaller onedir + Inno) → модель-онбординг → бета.
 
 ## Нюансы (копать не заново)
 
