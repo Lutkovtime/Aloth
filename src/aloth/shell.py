@@ -31,12 +31,39 @@ class ShellError(Exception):
     pass
 
 
+def canonicalize(command: str) -> str:
+    """Strip wrapping prefixes so matching sees the real command.
+
+    `timeout 5 rm -rf /`, `nohup rm -rf /`, `env A=1 rm -rf /` all
+    canonicalize to `rm -rf /` — otherwise deny lists are trivially
+    bypassed with a prefix.
+    """
+    parts = command.strip().split()
+    while parts:
+        if parts[0] == "timeout":
+            parts = parts[1:]
+            while parts and (parts[0].startswith("-") or parts[0].isdigit()
+                             or parts[0][:-1].isdigit() and parts[0][-1] in "smh"):
+                parts = parts[1:]
+            continue
+        if parts[0] == "nohup":
+            parts = parts[1:]
+            continue
+        if parts[0] == "env":
+            parts = parts[1:]
+            while parts and "=" in parts[0] and not parts[0].startswith("-"):
+                parts = parts[1:]
+            continue
+        break
+    return " ".join(parts)
+
+
 class Shell:
     def __init__(self, profile: str = "readonly"):
         self.profile = profile
 
     def run(self, command: str, timeout: int = 30) -> str:
-        cmd = command.strip()
+        cmd = canonicalize(command)
         if not cmd:
             raise ShellError("пустая команда")
         first = cmd.split(" ", 1)[0]
@@ -71,13 +98,17 @@ class Shell:
 
 
 if __name__ == "__main__":  # pragma: no cover — runnable self-check
+    assert canonicalize("timeout 5 rm -rf /tmp/x") == "rm -rf /tmp/x"
+    assert canonicalize("nohup echo hi") == "echo hi"
+    assert canonicalize("env A=1 ls -la") == "ls -la"
     sh = Shell("readonly")
     assert "test" in sh.run("echo test")
-    try:
-        sh.run("rm -rf /tmp/x")
-        raise AssertionError("rm не заблокирован")
-    except ShellError:
-        pass
+    for evil in ("rm -rf /tmp/x", "timeout 5 rm -rf /tmp/x", "nohup mv a b"):
+        try:
+            sh.run(evil)
+            raise AssertionError(f"не заблокировано: {evil}")
+        except ShellError:
+            pass
     try:
         sh.run("curl http://x")
         raise AssertionError("curl не заблокирован в readonly")

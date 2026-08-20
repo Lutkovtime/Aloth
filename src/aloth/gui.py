@@ -31,6 +31,7 @@ from aloth.core import build_agent
 from aloth.files import FileTools
 from aloth.home import ensure_home
 from aloth.memory import MemoryStore
+from aloth.security import SecurityPolicy
 from aloth.sessions import SessionStore
 from aloth.shell import Shell
 
@@ -49,14 +50,19 @@ class AgentWorker(QThread):
     def run(self) -> None:
         try:
             home = ensure_home()
-            agent = build_agent(
-                memory=MemoryStore(home / "data" / "memory.db"),
-                files=FileTools(home),
-                shell=Shell(profile=self.profile),
-            )
-            context = "\n".join(f"{m['role']}: {m['content']}" for m in self.history)
-            full = f"{context}\nuser: {self.prompt}" if self.history else self.prompt
-            result = asyncio.run(agent.run(full))
+            policy = SecurityPolicy.load(home)
+            try:
+                agent = build_agent(
+                    memory=MemoryStore(home / "data" / "memory.db"),
+                    files=FileTools(home),
+                    shell=Shell(profile=self.profile),
+                    security=policy,
+                )
+                context = "\n".join(f"{m['role']}: {m['content']}" for m in self.history)
+                full = f"{context}\nuser: {self.prompt}" if self.history else self.prompt
+                result = asyncio.run(agent.run(full))
+            finally:
+                policy.close()
             self.done.emit(result.data if hasattr(result, "data") else str(result), "")
         except Exception as e:  # noqa: BLE001 — surface any failure to the UI
             self.done.emit("", str(e))

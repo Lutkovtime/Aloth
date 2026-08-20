@@ -61,18 +61,23 @@ claude-sonnet-5 ($1.6/8) — архитектура/рефакторинг; clau
 Через Nous: `hermes -z "..." -m "anthropic/claude-sonnet-5" --provider nous`.
 Балансы: DeepSeek ~$5.6, Nous ~$20.
 
+- ✅ Безопасность: security.py — per-tool матрица {enabled, autoApprove}
+  (config/security.json, deny-by-default: неизвестный тул = выключен),
+  audit-log каждого вызова (data/audit.db), CLI `aloth security list|set|audit`.
+  shell.py: canonicalize() срезает timeout/nohup/env-префиксы — иначе
+  `timeout 5 rm -rf /` обходит deny-список.
 - ✅ GUI PySide6: `aloth gui` — чат + список сессий (создание, переключение,
   история, агент в QThread, UI не замирает). Offscreen smoke + живой ответ
   через AgentWorker проверены. GUI прогон: evals 6/6.
 
 ## Следующий шаг
 
-По чеклисту плана (Процесс разработки): тулы + evals + GUI-чат готовы →
-1. **Безопасность (полная)** — per-tool матрица {enabled, autoApprove} в
-   настройках GUI, canonicalization команд, audit-log. Сейчас — только
-   задел: shell-профили deny-by-default.
-2. **Вкладки GUI** — «Настройки», «Память», «Навыки» (после безопасности,
-   матрица тулов ляжет в «Настройки»).
+По чеклисту плана (Процесс разработки): тулы + evals + GUI + безопасность готовы →
+1. **Вкладки GUI** — «Настройки» (туда ляжет редактор матрицы из security.json),
+   «Память», «Навыки». Матрица уже хранится в config/security.json,
+   `aloth security list|set|audit` работает из CLI.
+2. **HITL** — autoApprove=false сейчас только хранится; enforcement (спросить
+   перед действием) — при вкладке «Настройки».
 3. Установщик (PyInstaller onedir + Inno) → модель-онбординг → бета.
 
 ## Нюансы (копать не заново)

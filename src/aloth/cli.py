@@ -10,6 +10,7 @@ from aloth.core import build_agent
 from aloth.files import FileTools
 from aloth.home import ensure_home, home_dir
 from aloth.memory import MemoryStore
+from aloth.security import SecurityPolicy
 from aloth.sessions import SessionStore
 from aloth.shell import Shell
 
@@ -34,7 +35,9 @@ def _cmd_chat(args: argparse.Namespace) -> int:
     home = ensure_home()
     files = FileTools(home)
     shell = Shell(profile=args.profile)
-    agent = build_agent(model=args.model, memory=mem, files=files, shell=shell)
+    policy = SecurityPolicy.load(home)
+    agent = build_agent(model=args.model, memory=mem, files=files, shell=shell,
+                        security=policy)
     sid = args.session or store.create_session()
 
     async def run() -> str:
@@ -46,7 +49,10 @@ def _cmd_chat(args: argparse.Namespace) -> int:
         return result.data if hasattr(result, "data") else str(result)
 
     store.add_message(sid, "user", args.message)
-    reply = asyncio.run(run())
+    try:
+        reply = asyncio.run(run())
+    finally:
+        policy.close()
     store.add_message(sid, "assistant", reply)
 
     print(reply)
@@ -71,6 +77,28 @@ def _cmd_gui(args: argparse.Namespace) -> int:
     return gui_main(["--profile", args.profile])
 
 
+def _cmd_security(args: argparse.Namespace) -> int:
+    policy = SecurityPolicy.load(ensure_home())
+    if args.action == "list":
+        for name, entry in policy.matrix().items():
+            state = "on" if entry["enabled"] else "off"
+            print(f"{name:16} {state:4} autoApprove={entry['autoApprove']}")
+    elif args.action == "set":
+        if args.tool not in policy.matrix():
+            print(f"неизвестный тул: {args.tool}", file=sys.stderr)
+            policy.close()
+            return 2
+        policy.set_tool(args.tool, args.enabled == "on")
+        policy.save()
+        print(f"{args.tool}: {'on' if args.enabled else 'off'}")
+    elif args.action == "audit":
+        for row in policy.recent():
+            print(f"{row['ts']} {row['tool']:12} "
+                  f"{'OK ' if row['allowed'] else 'BLOCK'} {row['args'][:100]}")
+    policy.close()
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="aloth", description="Aloth (Amazing Sloth)")
     p.add_argument("--model", default="deepseek:deepseek-chat")
@@ -90,6 +118,16 @@ def main(argv: list[str] | None = None) -> int:
 
     gui = sub.add_parser("gui", help="графический интерфейс (чат)")
     gui.set_defaults(fn=_cmd_gui)
+
+    sec = sub.add_parser("security", help="матрица тулов и audit-log")
+    sec_sub = sec.add_subparsers(dest="action", required=True)
+    sec_sub.add_parser("list").set_defaults(fn=_cmd_security, action="list")
+    sec_set = sec_sub.add_parser("set", help="включить/выключить тул")
+    sec_set.add_argument("tool")
+    sec_set.add_argument("enabled", choices=["on", "off"])
+    sec_set.set_defaults(fn=_cmd_security, action="set")
+    sec_sub.add_parser("audit", help="последние вызовы").set_defaults(
+        fn=_cmd_security, action="audit")
 
     search = sub.add_parser("search", help="поиск по истории сессий")
     search.add_argument("query")
