@@ -69,16 +69,23 @@ claude-sonnet-5 ($1.6/8) — архитектура/рефакторинг; clau
 - ✅ GUI PySide6: `aloth gui` — чат + список сессий (создание, переключение,
   история, агент в QThread, UI не замирает). Offscreen smoke + живой ответ
   через AgentWorker проверены. GUI прогон: evals 6/6.
+- ✅ Вкладки GUI (20.08): «Чат» | «Память» (факты L1: список/добавить/забыть) |
+  «Навыки» (редактор ~/.aloth/skills/*.md) | «Настройки» (матрица security.json:
+  enabled/autoApprove + сохранение). Проверено offscreen smoke.
+- ✅ HITL: autoApprove=false РЕАЛЬНО спрашивает — QMessageBox в GUI
+  (AgentWorker: approval_requested signal + threading.Event, approver в
+  build_agent); отказ → тул «отменено пользователем» + запись в audit
+  (allowed=0). CLI работает без approver (как раньше). Evals 7/7 (hitl_denied).
+- ✅ Навыки работают: *.md из ~/.aloth/skills/ инжектятся в system_prompt
+  («Навыки (инструкции пользователя):»), подхват и в CLI, и в GUI.
 
 ## Следующий шаг
 
-По чеклисту плана (Процесс разработки): тулы + evals + GUI + безопасность готовы →
-1. **Вкладки GUI** — «Настройки» (туда ляжет редактор матрицы из security.json),
-   «Память», «Навыки». Матрица уже хранится в config/security.json,
-   `aloth security list|set|audit` работает из CLI.
-2. **HITL** — autoApprove=false сейчас только хранится; enforcement (спросить
-   перед действием) — при вкладке «Настройки».
-3. Установщик (PyInstaller onedir + Inno) → модель-онбординг → бета.
+1. **Установщик** — PyInstaller onedir + Inno Setup (Windows), сборка
+   `aloth.exe`, проверка на чистой машине.
+2. **Модель-онбординг** — первый запуск: ввод API-ключа (DEEPSEEK_API_KEY),
+   выбор профиля доверия (readonly для бабушки / full для сеньора).
+3. **Бета** — публикация репозитория (MIT), README, релиз.
 
 ## Нюансы (копать не заново)
 
