@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import os
 import sys
 import threading
 from pathlib import Path
@@ -19,6 +20,9 @@ from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -37,6 +41,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from aloth import config
 from aloth.core import build_agent
 from aloth.files import FileTools
 from aloth.home import ensure_home
@@ -56,11 +61,13 @@ class AgentWorker(QThread):
     done = Signal(str, str)
     approval_requested = Signal(str, str)
 
-    def __init__(self, prompt: str, history: list[dict], profile: str, parent=None):
+    def __init__(self, prompt: str, history: list[dict], profile: str, parent=None,
+                 api_key: str | None = None):
         super().__init__(parent)
         self.prompt = prompt
         self.history = history
         self.profile = profile
+        self.api_key = api_key
         self._event = threading.Event()
         self._ok = False
 
@@ -87,6 +94,7 @@ class AgentWorker(QThread):
                     security=policy,
                     approver=self._approver,
                     skills_dir=home / "skills",
+                    api_key=self.api_key,
                 )
                 context = "\n".join(f"{m['role']}: {m['content']}" for m in self.history)
                 full = f"{context}\nuser: {self.prompt}" if self.history else self.prompt
@@ -280,15 +288,47 @@ class SettingsTab(QWidget):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, profile: str = "readonly"):
+    def __init__(self, profile: str | None = None):
         super().__init__()
-        self.profile = profile
         self.home = ensure_home()
+        settings = config.load(self.home)
+        self.profile = profile or settings.profile
+        self.api_key = settings.api_key
+        if not (os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("ALOTH_API_KEY")
+                or self.api_key):
+            if not self._setup_dialog():
+                sys.exit(0)
         self.store = SessionStore(self.home / "data" / "sessions.db")
         self.current_sid: str | None = None
         self.worker: AgentWorker | None = None
         self._build_ui()
         self._reload_sessions()
+
+    def _setup_dialog(self) -> bool:
+        """Первый запуск: API-ключ DeepSeek + профиль доверия. True = сохранено."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Aloth — первый запуск")
+        key = QLineEdit()
+        key.setEchoMode(QLineEdit.Password)
+        key.setPlaceholderText("DeepSeek API key (sk-…)")
+        combo = QComboBox()
+        combo.addItems(config.PROFILES)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.button(QDialogButtonBox.Ok).setText("Сохранить")
+        buttons.button(QDialogButtonBox.Cancel).setText("Отмена")
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(QLabel("Введи API-ключ DeepSeek и выбери профиль доверия."))
+        lay.addWidget(key)
+        lay.addWidget(combo)
+        lay.addWidget(buttons)
+        if dlg.exec() != QDialog.Accepted:
+            return False
+        self.api_key = key.text().strip()
+        config.save(self.home, config.Settings(api_key=self.api_key,
+                                               profile=combo.currentText()))
+        return True
 
     def _build_ui(self) -> None:
         self.setWindowTitle("Aloth")
@@ -401,7 +441,8 @@ class MainWindow(QMainWindow):
         self._set_busy(True)
 
         history = self.store.history(self.current_sid, limit=20)
-        self.worker = AgentWorker(text, history[:-1], self.profile, self)
+        self.worker = AgentWorker(text, history[:-1], self.profile, self,
+                                  api_key=self.api_key)
         self.worker.done.connect(self._on_done)
         self.worker.approval_requested.connect(self._on_approval_request)
         self.worker.start()
@@ -446,9 +487,9 @@ def main(argv: list[str] | None = None) -> int:
     import argparse
 
     p = argparse.ArgumentParser(prog="aloth gui")
-    p.add_argument("--profile", default="readonly",
+    p.add_argument("--profile", default=None,
                    choices=["readonly", "full"],
-                   help="профиль доверия для shell (default: readonly)")
+                   help="профиль доверия для shell (default: из настроек или readonly)")
     args = p.parse_args(argv)
 
     app = QApplication(sys.argv[:1])

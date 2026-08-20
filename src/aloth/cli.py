@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
 
+from aloth import config
 from aloth.core import build_agent
 from aloth.files import FileTools
 from aloth.home import ensure_home, home_dir
@@ -30,14 +32,21 @@ def _cmd_chat(args: argparse.Namespace) -> int:
         print("Пустое сообщение. Пример: aloth chat \"привет\"", file=sys.stderr)
         return 2
 
+    home = ensure_home()
+    settings = config.load(home)
+    if not (os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("ALOTH_API_KEY")
+            or settings.api_key):
+        print("Запусти aloth setup чтобы ввести API-ключ", file=sys.stderr)
+        return 2
+
     store = _store()
     mem = _mem()
-    home = ensure_home()
     files = FileTools(home)
-    shell = Shell(profile=args.profile)
+    shell = Shell(profile=args.profile or settings.profile)
     policy = SecurityPolicy.load(home)
     agent = build_agent(model=args.model, memory=mem, files=files, shell=shell,
-                        security=policy, skills_dir=home / "skills")
+                        security=policy, skills_dir=home / "skills",
+                        api_key=settings.api_key or None)
     sid = args.session or store.create_session()
 
     async def run() -> str:
@@ -74,7 +83,24 @@ def _cmd_search(args: argparse.Namespace) -> int:
 
 def _cmd_gui(args: argparse.Namespace) -> int:
     from aloth.gui import main as gui_main
-    return gui_main(["--profile", args.profile])
+    argv = ["--profile", args.profile] if args.profile else []
+    return gui_main(argv)
+
+
+def _cmd_setup(_: argparse.Namespace) -> int:
+    home = ensure_home()
+    current = config.load(home)
+    key = input("DeepSeek API key: ").strip() or current.api_key
+    profile = input(
+        f"Профиль доверия ({'/'.join(config.PROFILES)}, default: {current.profile}): "
+    ).strip() or current.profile
+    try:
+        config.save(home, config.Settings(api_key=key, profile=profile))
+    except ValueError as e:
+        print(f"ошибка: {e}", file=sys.stderr)
+        return 2
+    print("готово")
+    return 0
 
 
 def _cmd_security(args: argparse.Namespace) -> int:
@@ -102,9 +128,9 @@ def _cmd_security(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="aloth", description="Aloth (Amazing Sloth)")
     p.add_argument("--model", default="deepseek:deepseek-chat")
-    p.add_argument("--profile", default="readonly",
+    p.add_argument("--profile", default=None,
                    choices=["readonly", "full"],
-                   help="профиль доверия для shell (default: readonly)")
+                   help="профиль доверия для shell (default: из настроек или readonly)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     chat = sub.add_parser("chat", help="поговорить с агентом")
@@ -112,6 +138,9 @@ def main(argv: list[str] | None = None) -> int:
     chat.add_argument("--session")
     chat.add_argument("--history", type=int, default=10)
     chat.set_defaults(fn=_cmd_chat)
+
+    setup = sub.add_parser("setup", help="первый запуск: API-ключ и профиль доверия")
+    setup.set_defaults(fn=_cmd_setup)
 
     home = sub.add_parser("home", help="показать дом агента")
     home.set_defaults(fn=_cmd_home)

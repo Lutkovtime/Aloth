@@ -78,14 +78,25 @@ claude-sonnet-5 ($1.6/8) — архитектура/рефакторинг; clau
   (allowed=0). CLI работает без approver (как раньше). Evals 7/7 (hitl_denied).
 - ✅ Навыки работают: *.md из ~/.aloth/skills/ инжектятся в system_prompt
   («Навыки (инструкции пользователя):»), подхват и в CLI, и в GUI.
+- ✅ Онбординг: `aloth setup` (интерактивный ввод API-ключа + профиля
+  доверия, config/settings.json); GUI при первом запуске — диалог
+  (ключ + профиль); chat без ключа → подсказка «aloth setup», exit 2.
+  api_key в build_agent: env → settings (через setdefault).
+- ✅ Установщик: PyInstaller onedir (dist/aloth/ CLI + dist/aloth-gui/
+  GUI, --copy-metadata genai_prices pydantic_ai_slim mcp + --exclude-module
+  logfire — без них frozen падает PackageNotFoundError/OSError) +
+  installer.iss (Inno 6, PrivilegesRequired=lowest) → Aloth-Setup-0.1.0.exe.
+  Проверено: тихая установка в чистый каталог, aloth.exe --help,
+  aloth-gui.exe жив (offscreen). Сборка: docs/build.md. README + LICENSE (MIT).
 
 ## Следующий шаг
 
-1. **Установщик** — PyInstaller onedir + Inno Setup (Windows), сборка
-   `aloth.exe`, проверка на чистой машине.
-2. **Модель-онбординг** — первый запуск: ввод API-ключа (DEEPSEEK_API_KEY),
-   выбор профиля доверия (readonly для бабушки / full для сеньора).
-3. **Бета** — публикация репозитория (MIT), README, релиз.
+1. **Бета** — публикация репозитория (сделать public), тест на чистой
+   машине (Windows без Python), релиз Aloth-Setup-0.1.0.exe в GitHub Releases.
+2. Первые пользовательские фидбеки → итерации.
+3. Известные хвосты: icon на ярлыке/окне (assets/logo.ico уже в сборках exe);
+   HITL в CLI (сейчас только GUI); профиль full/readonly в настройках GUI
+   (пока в онбординге и флаге).
 
 ## Нюансы (копать не заново)
 

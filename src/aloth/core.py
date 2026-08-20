@@ -2,7 +2,8 @@
 
 One agent + tools + instructions — the simplest loop that works.
 Model string 'deepseek:deepseek-chat' is resolved by PydanticAI 2.x
-natively; API key comes from DEEPSEEK_API_KEY env var.
+natively; API key comes from DEEPSEEK_API_KEY env var, or the api_key
+parameter (set via `aloth setup`).
 
 Security: when a SecurityPolicy is passed, tools are exposed only if
 enabled in the policy (deny-by-default), and every call is audited.
@@ -54,9 +55,14 @@ def build_agent(
     security: SecurityPolicy | None = None,
     approver: Callable[[str, str], bool] | None = None,
     skills_dir: Path | None = None,
+    api_key: str | None = None,
 ) -> Agent:
-    if not (os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("ALOTH_API_KEY")):
-        raise ValueError("API key missing: set DEEPSEEK_API_KEY or ALOTH_API_KEY")
+    env_key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("ALOTH_API_KEY")
+    if not env_key and not api_key:
+        raise ValueError("API key missing: set DEEPSEEK_API_KEY or ALOTH_API_KEY (или запусти aloth setup)")
+    if api_key and not env_key:
+        # pydantic-ai Agent не принимает api_key — прокидываем через env.
+        os.environ.setdefault("DEEPSEEK_API_KEY", api_key)
 
     facts = memory.all() if memory else []
     prompt = system_prompt
