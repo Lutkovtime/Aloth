@@ -1,0 +1,21 @@
+[project]
+name = "aloth"
+version = "0.1.0"
+description = "Aloth (Amazing Sloth) — open-source AI agent for everyone"
+readme = "README.md"
+authors = [
+    { name = "Lutkovtime", email = "sasha.lutkov@gmail.com" }
+]
+license = { text = "MIT" }
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.28.1",
+    "pydantic-ai>=0.1",
+]
+
+[project.scripts]
+aloth = "aloth.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
