@@ -87,6 +87,15 @@ aloth search "запрос"    # поиск по истории сессий
 
 См. `docs/build.md` (PyInstaller + Inno Setup).
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+
+- **Подписываются**: официальные релизы (установщик и исполняемые файлы) из GitHub Releases.
+- **Команда**: соло-разработчик [Lutkovtime](https://github.com/Lutkovtime) — Author / Reviewer / Approver. Каждый релиз перед подписью проходит ручное одобрение.
+- **Проверка**: сборка артефактов выполняется из исходного кода репозитория; подпись подтверждает, что бинарник собран из отмеченного исходного кода.
+- **Конфиденциальность**: [политика конфиденциальности](docs/privacy-policy.md).
+
 ## Лицензия
 
 MIT — см. `LICENSE`.
