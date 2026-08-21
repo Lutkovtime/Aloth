@@ -1,105 +1,82 @@
-# Aloth (Amazing Sloth)
+# Aloth
 
-Персональный AI-ассистент, который работает на вашем компьютере, хранит
-данные у вас и слушается только вас. От «поставил и работает» до полного
-контроля над каждым действием — один инструмент для всех.
+A local-first AI assistant for Windows — chat with an AI agent from a desktop app or your terminal. Your data stays on your machine.
 
-- **Простота**: установщик, один ярлык, общение на русском.
-- **Контроль**: матрица разрешений, профили доверия, подтверждение
-  каждого действия (HITL), полный audit-log.
-- **Без ключей для веба**: поиск через DuckDuckGo, без API-ключей и VPN.
-- **Память**: факты о пользователе всегда в контексте, навыки — обычные
-  `.md`-файлы в папке ассистента.
-- **Открытый код**: MIT, Windows и Linux.
+![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+![Platform: Windows](https://img.shields.io/badge/platform-Windows-lightgrey)
+![Release](https://img.shields.io/github/v/release/Lutkovtime/Aloth)
 
-## Статус разработки
+> **Early stage:** Aloth is under active development. Features and CLI flags may change between versions.
 
-Активная разработка. Текущий релиз — **0.1.x** (описание ниже). Ведётся работа над: терминальным REPL, визардом первого запуска, файловой памятью, профилями установки, подписанными релизами. Подписанные сборки — после подключения SignPath Foundation.
+## Features
 
-## Установка
+- **Desktop chat** — GUI with chat, memory, skills and settings
+- **Terminal CLI** — `aloth chat "..."`, `aloth setup`, `aloth security`
+- **Local data** — everything lives in `~/.aloth`; backup is copying one folder
+- **Memory** — facts about you stay in context across sessions
+- **Skills** — plain `.md` files the agent follows
+- **Security first** — deny-by-default tool permissions, human approval (HITL), full audit log
+- **Bring your own model** — OpenAI-compatible providers (DeepSeek by default)
+- **Web search** — via DuckDuckGo
 
-### Установщик (рекомендуется)
+## Installation
 
-Скачайте `Aloth-Setup-*.exe` из релизов и запустите — установка без прав
-администратора. Дальше `aloth setup` при первом запуске спросит API-ключ
-и профиль доверия.
+### Installer
 
-### Из исходников
+Download `Aloth-Setup-*.exe` from [Releases](https://github.com/Lutkovtime/Aloth/releases) and run it — no admin rights required.
+
+### From source
 
 ```bash
 git clone https://github.com/Lutkovtime/Aloth.git
 cd Aloth
 uv sync
 export DEEPSEEK_API_KEY=sk-...
-uv run aloth chat "привет"
+uv run aloth chat "hello"
 ```
 
-## Быстрый старт
+## Quick start
 
 ```bash
-aloth setup              # ввести API-ключ DeepSeek, выбрать профиль
-aloth gui                # графический чат + вкладки Память/Навыки/Настройки
-aloth chat "привет"      # разговор из терминала
-aloth security list      # какие тулы включены
-aloth security audit     # последние действия агента
-aloth search "запрос"    # поиск по истории сессий
+aloth setup              # enter your API key, choose trust profile
+aloth gui                # desktop app
+aloth chat "hello"       # chat from the terminal
+aloth security list      # which tools are enabled
 ```
 
-После установки:
-- **Aloth** (меню Пуск / рабочий стол) — графический интерфейс. Приложение
-  живёт в системном трее: закрытие окна сворачивает его туда, выход — через
-  меню иконки в трее.
-- **Aloth (терминал)** (меню Пуск) — консольный режим: `chat`, `setup`,
-  `security`, `search`.
-- **Удаление** — «Aloth» → «Удалить Aloth» в меню Пуск или через
-  «Установка и удаление программ». Деинсталлятор спросит, удалить ли
-  данные (память, настройки, ключи — папка `~/.aloth`).
+## Status
 
-Профиль доверия:
-- `readonly` (по умолчанию) — безопасные команды; опасные и
-  необратимые действия запрещены.
-- `full` — всё, кроме всегда-запрещённых (`rm`, `mv`, `sudo`, …).
-  Флаг: `aloth --profile full chat "..."`.
+Early development. The current release is **0.1.x**: usable for basic chat, memory and tool use, but expect rough edges. Planned work: terminal REPL, first-run wizard, file-based memory, signed releases.
 
-## Безопасность
+## FAQ
 
-- **Deny-by-default**: неизвестный тул выключен, матрица
-  `~/.aloth/config/security.json` — источник правды, редактируется
-  во вкладке «Настройки» или через `aloth security set`.
-- **HITL**: тулы с выключенным авто-одобрением спрашивают пользователя
-  перед действием (в GUI — диалог, в CLI — авто-выполнение).
-- **Audit**: каждый вызов тула пишется в `~/.aloth/data/audit.db`.
-- **Изоляция**: файловые тулы работают только внутри `~/.aloth`; команды
-  проходят canonicalization (обход deny-списка через `timeout`/`nohup`
-  невозможен).
-- Решения о правах принимает код, а не модель: инъекция из файла или
-  веб-страницы не может расширить права.
+**What state is the project in?**
+Alpha. It works for basic chat, memory and tool use; interfaces may change between versions.
 
-## Дом ассистента
+**Will Aloth send my data anywhere?**
+Only to the LLM provider you configure — you supply the API key yourself. Conversations and data stay on your machine; see the [privacy policy](docs/privacy-policy.md).
 
-```
-~/.aloth/
-├── config/     # security.json, settings.json
-├── data/       # память, сессии, audit
-├── skills/     # навыки: .md-файлы, подхватываются как инструкции
-├── backups/    # снапшоты дома
-├── logs/       # логи
-└── runtime/    # временное
+**How do I remove it?**
+The uninstaller asks whether to delete your data (`~/.aloth`) or keep it.
+
+## Development
+
+```bash
+uv sync
+uv run python -m aloth.evals   # run evals
 ```
 
-## Сборка установщика
-
-См. `docs/build.md` (PyInstaller + Inno Setup).
+Build instructions: `docs/build.md`.
 
 ## Code signing policy
 
 Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
 
-- **Подписываются**: официальные релизы (установщик и исполняемые файлы) из GitHub Releases.
-- **Команда**: соло-разработчик [Lutkovtime](https://github.com/Lutkovtime) — Author / Reviewer / Approver. Каждый релиз перед подписью проходит ручное одобрение.
-- **Проверка**: сборка артефактов выполняется из исходного кода репозитория; подпись подтверждает, что бинарник собран из отмеченного исходного кода.
-- **Конфиденциальность**: [политика конфиденциальности](docs/privacy-policy.md).
+- **Signed artifacts**: official releases (installer and executables) from GitHub Releases.
+- **Team**: solo maintainer [Lutkovtime](https://github.com/Lutkovtime) — Author / Reviewer / Approver. Every release is manually approved before signing.
+- **Verification**: binaries are built from the source in this repository; a signature confirms the binary matches the tagged source.
+- **Privacy**: see the [privacy policy](docs/privacy-policy.md).
 
-## Лицензия
+## License
 
-MIT — см. `LICENSE`.
+MIT — see [LICENSE](LICENSE).

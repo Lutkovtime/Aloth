@@ -1,26 +1,26 @@
-# Политика конфиденциальности (Privacy Policy)
+# Privacy Policy
 
-Последнее обновление: 21.08.2026
+Last updated: August 21, 2026
 
-Aloth — персональный AI-ассистент, который работает локально на вашем компьютере. Мы минимизируем сбор данных: приложение не передаёт информацию сторонним системам, кроме случаев, явно инициированных пользователем.
+Aloth is a personal AI assistant that runs locally on your computer. We minimize data collection: the application does not transfer information to third-party systems unless explicitly initiated by you.
 
-## Что хранится локально
+## What is stored locally
 
-- **Настройки и память** — в папке `~/.aloth` на вашем компьютере: конфигурация, история сессий, факты о пользователе, навыки, логи.
-- **API-ключ** — хранится в защищённом хранилище Windows (Credential Manager) и не покидает ваш компьютер.
-- **Audit-лог** — локальная запись действий агента.
+- **Settings, memory and sessions** — in the `~/.aloth` folder on your computer: configuration, chat history, facts about you, skills, logs.
+- **API keys** — stored in the Windows Credential Manager; they never leave your machine.
+- **Audit log** — a local record of agent actions.
 
-## Что передаётся по сети
+## What is sent over the network
 
-- **Диалоги с моделью** — текст ваших сообщений и ответов отправляется выбранному вами LLM-провайдеру (по умолчанию DeepSeek), чей API-ключ вы указали в настройках. Это происходит только когда вы явно используете ассистента: вы сами выбираете провайдера и сами вводите ключ.
-- **Поиск в вебе** — если вы используете веб-поиск, поисковые запросы уходят выбранному поисковому сервису (по умолчанию DuckDuckGo).
+- **Conversations with the model** — your messages and responses are sent to the LLM provider you configured (DeepSeek by default), whose API key you entered in settings. This happens only when you actively use the assistant: you choose the provider and supply the key yourself.
+- **Web search** — if you use web search, queries go to the configured search service (DuckDuckGo by default).
 
-Программа не передаёт информацию другим сетевым системам, если это не было явно запрошено пользователем или лицом, установившим или использующим программу.
+The program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
 
-## Обновления
+## Updates
 
-Проверка обновлений обращается к серверу обновлений (GitHub Releases) только по вашей команде или автоматически по расписанию, чтобы сообщить о доступной версии.
+Update checks contact the update server (GitHub Releases) only to report whether a new version is available.
 
-## Контакты
+## Contact
 
-По вопросам конфиденциальности: [открыть issue](https://github.com/Lutkovtime/Aloth/issues) или написать на почту проекта.
+For privacy questions: [open an issue](https://github.com/Lutkovtime/Aloth/issues).
