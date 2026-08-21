@@ -32,6 +32,13 @@ CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
 END;
 """
 
+SCHEMA_VERSION = 1
+
+
+def schema_version(conn: sqlite3.Connection) -> int:
+    """Current schema version stored in PRAGMA user_version."""
+    return int(conn.execute("PRAGMA user_version").fetchone()[0])
+
 
 class SessionStore:
     def __init__(self, db_path: Path):
@@ -39,6 +46,7 @@ class SessionStore:
         self._conn = sqlite3.connect(str(db_path))
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
+        self._conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         self._conn.commit()
 
     def create_session(self, title: str = "Новая сессия") -> str:
@@ -95,6 +103,9 @@ if __name__ == "__main__":  # pragma: no cover — runnable self-check
 
     with tempfile.TemporaryDirectory() as td:
         store = SessionStore(Path(td) / "s.db")
+        conn = sqlite3.connect(str(Path(td) / "s.db"))
+        assert schema_version(conn) == SCHEMA_VERSION
+        conn.close()
         sid = store.create_session("тест")
         store.add_message(sid, "user", "привет мир")
         store.add_message(sid, "assistant", "и тебе привет")

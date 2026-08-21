@@ -35,7 +35,10 @@ CASES: list[dict] = [
     },
     {
         "name": "memory_persists_new_session",
-        "prompt": "Что ты обо мне знаешь? Перечисли факты из памяти.",
+        "prompt": (
+            "В твоём системном промпте есть факты о пользователе (блок «Факты о пользователе»). "
+            "Найди их там и перечисли, что ты знаешь обо мне."
+        ),
         "check": lambda r: "чай" in r.lower(),
     },
     {
@@ -104,6 +107,106 @@ def _hitl_case() -> tuple[str, bool, str]:
     return "hitl_denied", "отмен" in out.lower(), out[:200].replace("\n", " ")
 
 
+def _unit_compaction() -> tuple[str, bool, str]:
+    """Compaction (1.7): 20 msgs → checkpoint, mid-dialogue fact survives, tail intact."""
+    import tempfile
+
+    from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
+
+    from aloth.context import compact_history
+
+    msgs: list = []
+    for i in range(10):
+        msgs.append(ModelRequest(parts=[UserPromptPart(content=f"вопрос {i}: факт номер {i}")]))
+        msgs.append(ModelResponse(parts=[TextPart(content=f"ответ {i}")]))
+    res = compact_history(msgs, home_dir=Path(tempfile.mkdtemp(prefix="aloth-eval-ctx-")))
+    ok = res.compacted and len(res.history) == 1 + 4
+    ok = ok and res.history[1:] == msgs[-4:]
+    ok = ok and any("факт номер 5" in f for f in res.facts)
+    return "compaction_preserves_facts", ok, f"20→{len(res.history)} msgs, facts={len(res.facts)}"
+
+
+def _unit_provider() -> tuple[str, bool, str]:
+    """Provider (1.7): preset resolve + discover/test on a fake server."""
+    import httpx
+
+    from aloth import providers
+
+    assert providers.resolve(providers.PRESETS["deepseek"])[0] == "deepseek:deepseek-chat"
+    assert providers.resolve(providers.PRESETS["ollama"])[0] == "ollama:llama3.2"
+    custom = providers.Provider(
+        name="my-llm", base_url="https://llm.example.com", default_model="my-model", api_key="k"
+    )
+    assert providers.resolve(custom) == ("openai:my-model", "k")
+
+    def primary(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"data": [{"id": "m1"}, {"id": "m2"}]})
+
+    client = httpx.Client(transport=httpx.MockTransport(primary))
+    models = providers.discover_models("https://llm.example.com", "k", client=client)
+    ok = models == ["m1", "m2"] and providers.test_key("https://llm.example.com", "k", client=client)
+    return "provider_resolve_and_discover", ok, f"models={models}"
+
+
+def _unit_secrets() -> tuple[str, bool, str]:
+    """Keyring round-trip (1.7): set/get/delete through secrets.py on a temp home."""
+    import tempfile
+
+    from aloth import secrets
+
+    home = Path(tempfile.mkdtemp(prefix="aloth-eval-secrets-"))
+    secrets.set_api_key(home, "sk-eval")
+    got = secrets.get_api_key(home)
+    secrets.delete_api_key(home)
+    gone = secrets.get_api_key(home) == ""
+    return "secrets_keyring_roundtrip", (got == "sk-eval" and gone), f"backend={secrets.backend(home)}"
+
+
+def _unit_migrate() -> tuple[str, bool, str]:
+    """Migration 0.1.0 (1.7): api_key leaves settings.json, lands in keyring, backup exists."""
+    import json
+    import tempfile
+
+    from aloth import migrate, secrets
+
+    home = Path(tempfile.mkdtemp(prefix="aloth-eval-migrate-"))
+    (home / "config").mkdir(parents=True)
+    (home / "config" / "settings.json").write_text(
+        json.dumps({"api_key": "sk-old", "profile": "readonly"}), encoding="utf-8"
+    )
+    migrate.migrate(home)
+    data = json.loads((home / "config" / "settings.json").read_text(encoding="utf-8"))
+    ok = "api_key" not in data
+    ok = ok and secrets.get_api_key(home) == "sk-old"
+    ok = ok and any((home / "backups").iterdir())
+    return "migrate_moves_key_out_of_settings", ok, f"backup={'yes' if ok else 'no'}"
+
+
+def _unit_health() -> tuple[str, bool, str]:
+    """Health (1.7): run_health on a temp home returns a report, both levels."""
+    import tempfile
+
+    from aloth.health import run_health
+
+    home = Path(tempfile.mkdtemp(prefix="aloth-eval-health-"))
+    (home / "config").mkdir(parents=True)
+    (home / "config" / "settings.json").write_text("{}", encoding="utf-8")
+    out_simple = run_health(home, ui_level="simple")
+    out_adv = run_health(home, ui_level="advanced")
+    ok = ("✓" in out_simple or "✗" in out_simple) and len(out_simple) > 40
+    ok = ok and len(out_adv) > 40
+    return "health_reports", ok, out_simple[:80].replace("\n", " ")
+
+
+UNIT_CASES = [
+    _unit_compaction,
+    _unit_provider,
+    _unit_secrets,
+    _unit_migrate,
+    _unit_health,
+]
+
+
 def _run_cases() -> list[tuple[str, bool, str]]:
     results: list[tuple[str, bool, str]] = []
     for case in CASES:
@@ -116,6 +219,8 @@ def _run_cases() -> list[tuple[str, bool, str]]:
         out = buf.getvalue()
         results.append((case["name"], case["check"](out), out[:200].replace("\n", " ")))
     results.append(_hitl_case())
+    for unit in UNIT_CASES:
+        results.append(unit())
     return results
 
 

@@ -21,7 +21,8 @@ class FileTools:
         return p
 
     def read(self, rel: str) -> str:
-        return self._resolve(rel).read_text(encoding="utf-8")
+        # errors="replace": binary/non-utf8 files must never crash the dialog.
+        return self._resolve(rel).read_text(encoding="utf-8", errors="replace")
 
     def write(self, rel: str, content: str) -> str:
         p = self._resolve(rel)

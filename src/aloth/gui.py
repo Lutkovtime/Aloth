@@ -46,7 +46,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from aloth import config
+from aloth import config, secrets
 from aloth.core import build_agent
 from aloth.files import FileTools
 from aloth.home import ensure_home
@@ -308,7 +308,7 @@ class SettingsTab(QWidget):
         self.key_edit = QLineEdit()
         self.key_edit.setEchoMode(QLineEdit.Password)
         self.key_edit.setPlaceholderText("DeepSeek API key (sk-…)")
-        self.key_edit.setText(config.load(home).api_key)
+        self.key_edit.setText(secrets.get_api_key(home))
         key_link = QPushButton("Где взять ключ?")
         key_link.setFlat(True)
         key_link.clicked.connect(
@@ -356,10 +356,9 @@ class SettingsTab(QWidget):
         for name, (enabled, approve) in self._boxes.items():
             self.policy.set_tool(name, enabled.isChecked(), approve.isChecked())
         self.policy.save()
-        settings = config.load(self.home)
-        settings.api_key = self.key_edit.text().strip()
-        config.save(self.home, settings)
-        self.key_saved.emit(settings.api_key)
+        key = self.key_edit.text().strip()
+        secrets.set_api_key(self.home, key)
+        self.key_saved.emit(key)
         self.status.setText("сохранено ✓")
 
     def close(self) -> None:
@@ -372,7 +371,7 @@ class MainWindow(QMainWindow):
         self.home = ensure_home()
         settings = config.load(self.home)
         self.profile = profile or settings.profile
-        self.api_key = settings.api_key
+        self.api_key = secrets.get_api_key(self.home)
         if not (os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("ALOTH_API_KEY")
                 or self.api_key):
             if not self._setup_dialog():
@@ -475,8 +474,8 @@ class MainWindow(QMainWindow):
 
         def finish(key: str = "") -> None:
             self.api_key = key.strip()
-            config.save(self.home, config.Settings(api_key=self.api_key,
-                                                   profile=combo.currentText()))
+            secrets.set_api_key(self.home, self.api_key)
+            config.save(self.home, config.Settings(profile=combo.currentText()))
             dlg.accept()
 
         b_done = QPushButton("Готово")

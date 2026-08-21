@@ -18,7 +18,10 @@ from pathlib import Path
 from typing import Callable
 
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.openai import OpenAIProvider
 
+from aloth import providers
 from aloth.files import FileTools
 from aloth.memory import MemoryStore
 from aloth.security import SecurityPolicy
@@ -45,9 +48,34 @@ def _load_skills(skills_dir: Path | None) -> str:
     return "\n\n".join(blocks)
 
 
+def _make_model(
+    model: str,
+    provider: providers.Provider | None,
+    api_key: str | None,
+) -> str | OpenAIChatModel:
+    """Resolve a PydanticAI model from a provider (or the plain model string).
+
+    Native prefixes ('deepseek:', 'ollama:', ...) cover the presets with
+    their default base_url; any custom base_url gets an explicit
+    OpenAIChatModel so the request actually lands on the right endpoint.
+    """
+    if provider is None:
+        return model
+    model_string, pkey = providers.resolve(provider)
+    key = pkey or api_key
+    preset = providers.PRESETS.get(provider.name)
+    if preset is not None and provider.base_url == preset.base_url:
+        return model_string
+    return OpenAIChatModel(
+        model_name=provider.default_model,
+        provider=OpenAIProvider(base_url=provider.base_url, api_key=key),
+    )
+
+
 def build_agent(
     *,
     model: str = DEFAULT_MODEL,
+    provider: providers.Provider | None = None,
     system_prompt: str = SYSTEM_PROMPT,
     memory: MemoryStore | None = None,
     files: FileTools | None = None,
@@ -72,7 +100,7 @@ def build_agent(
     if skills:
         prompt += "\n\nНавыки (инструкции пользователя):\n" + skills
 
-    agent = Agent(model, system_prompt=prompt)
+    agent = Agent(_make_model(model, provider, api_key), system_prompt=prompt)
 
     def _enabled(name: str) -> bool:
         return security is None or security.tool_enabled(name)
@@ -132,9 +160,9 @@ def build_agent(
                 return "отменено пользователем"
             try:
                 value = files.read(path)
-            except ValueError as e:
+            except OSError as e:
                 _audit("file_read", path, False, str(e))
-                raise
+                return f"ошибка: {e}"
             _audit("file_read", path, True)
             return value
 
@@ -147,9 +175,9 @@ def build_agent(
                 return "отменено пользователем"
             try:
                 value = files.write(path, content)
-            except ValueError as e:
-                _audit("file_write", path, False, str(e))
-                raise
+            except OSError as e:
+                _audit("file_write", f"{path}: {content[:100]}", False, str(e))
+                return f"ошибка: {e}"
             _audit("file_write", f"{path}: {content[:100]}", True)
             return value
 

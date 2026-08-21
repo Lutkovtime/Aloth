@@ -7,14 +7,35 @@ import asyncio
 import os
 import sys
 
-from aloth import config
+from aloth import config, secrets
+from aloth.context import compact_history
 from aloth.core import build_agent
 from aloth.files import FileTools
+from aloth.health import run_health
 from aloth.home import ensure_home, home_dir
+from aloth.logging import setup_logging
 from aloth.memory import MemoryStore
 from aloth.security import SecurityPolicy
 from aloth.sessions import SessionStore
 from aloth.shell import Shell
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    UserPromptPart,
+)
+
+
+def _history_messages(rows: list[dict]) -> list[ModelMessage]:
+    """Convert stored {role, content} rows into PydanticAI messages."""
+    msgs: list[ModelMessage] = []
+    for m in rows:
+        if m["role"] == "user":
+            msgs.append(ModelRequest(parts=[UserPromptPart(content=m["content"])]))
+        else:
+            msgs.append(ModelResponse(parts=[TextPart(content=m["content"])]))
+    return msgs
 
 
 def _store() -> SessionStore:
@@ -34,8 +55,9 @@ def _cmd_chat(args: argparse.Namespace) -> int:
 
     home = ensure_home()
     settings = config.load(home)
+    key = secrets.get_api_key(home)
     if not (os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("ALOTH_API_KEY")
-            or settings.api_key):
+            or key):
         print("Запусти aloth setup чтобы ввести API-ключ", file=sys.stderr)
         return 2
 
@@ -46,15 +68,15 @@ def _cmd_chat(args: argparse.Namespace) -> int:
     policy = SecurityPolicy.load(home)
     agent = build_agent(model=args.model, memory=mem, files=files, shell=shell,
                         security=policy, skills_dir=home / "skills",
-                        api_key=settings.api_key or None)
+                        api_key=key or None)
     sid = args.session or store.create_session()
 
     async def run() -> str:
-        # Feed history so the agent keeps context across runs.
-        history = store.history(sid, limit=args.history)
-        prompt = "\n".join(f"{m['role']}: {m['content']}" for m in history)
-        prompt = f"{prompt}\nuser: {args.message}" if history else args.message
-        result = await agent.run(prompt)
+        # Feed history so the agent keeps context across runs; compact it
+        # when it grows past the threshold (context.py, Task 1.1).
+        history = _history_messages(store.history(sid, limit=args.history))
+        comp = compact_history(history, home_dir=home)
+        result = await agent.run(args.message, message_history=comp.history)
         return result.data if hasattr(result, "data") else str(result)
 
     store.add_message(sid, "user", args.message)
@@ -66,6 +88,13 @@ def _cmd_chat(args: argparse.Namespace) -> int:
 
     print(reply)
     print(f"\n[session {sid}]", file=sys.stderr)
+    return 0
+
+
+def _cmd_health(args: argparse.Namespace) -> int:
+    home = ensure_home()
+    level = args.level or ("advanced" if config.load(home).is_advanced() else "simple")
+    print(run_health(home, ui_level=level))
     return 0
 
 
@@ -90,12 +119,14 @@ def _cmd_gui(args: argparse.Namespace) -> int:
 def _cmd_setup(_: argparse.Namespace) -> int:
     home = ensure_home()
     current = config.load(home)
-    key = input("DeepSeek API key: ").strip() or current.api_key
+    current_key = secrets.get_api_key(home)
+    key = input("DeepSeek API key: ").strip() or current_key
     profile = input(
         f"Профиль доверия ({'/'.join(config.PROFILES)}, default: {current.profile}): "
     ).strip() or current.profile
     try:
-        config.save(home, config.Settings(api_key=key, profile=profile))
+        secrets.set_api_key(home, key)
+        config.save(home, config.Settings(profile=profile))
     except ValueError as e:
         print(f"ошибка: {e}", file=sys.stderr)
         return 2
@@ -126,6 +157,7 @@ def _cmd_security(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    setup_logging(ensure_home())
     p = argparse.ArgumentParser(prog="aloth", description="Aloth (Amazing Sloth)")
     p.add_argument("--model", default="deepseek:deepseek-chat")
     p.add_argument("--profile", default=None,
@@ -144,6 +176,11 @@ def main(argv: list[str] | None = None) -> int:
 
     home = sub.add_parser("home", help="показать дом агента")
     home.set_defaults(fn=_cmd_home)
+
+    health = sub.add_parser("health", help="проверка состояния: ключ, сеть, диск, память, логи")
+    health.add_argument("--level", choices=["simple", "advanced"], default=None,
+                        help="уровень вывода (default: из настроек)")
+    health.set_defaults(fn=_cmd_health)
 
     gui = sub.add_parser("gui", help="графический интерфейс (чат)")
     gui.set_defaults(fn=_cmd_gui)
