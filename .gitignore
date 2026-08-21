@@ -14,3 +14,6 @@ spike/work/
 
 # Virtual environments
 .venv
+
+# Stray temp clones from research (untracked)
+UsersGodAppDataLocal/
