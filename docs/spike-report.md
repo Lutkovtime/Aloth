@@ -10,7 +10,9 @@
 **Вердикт: РАБОТАЕТ — Nuitka остаётся основной сборкой.**
 
 - Команда: `uv run nuitka --standalone --enable-plugin=pyside6 --output-dir=dist_spike spike/nuitka_spike.py`
-- Среда: Windows 11, Python 3.11 (uv), MSVC 14.51 (VS 2022/18 Community), Nuitka 4.1.3.
+- Среда: Windows 11, Python 3.11 (uv), Nuitka 4.1.3. Компилятор — MinGW gcc
+  15.2.0 (Nuitka скачал сам, Windows SDK в VS не понадобился → CI не требует
+  Visual Studio).
 - Сборка: ~5 мин (ccache). Все data-files qt-material (fonts/resources/themes,
   18+39+26 файлов) и qtawesome (fonts) включены автоматически.
 - Проверка (offscreen, на собранном `nuitka_spike.exe`): иконка QtAwesome
